@@ -1,0 +1,38 @@
+# Node dependencies
+node_modules/
+package-lock.json.bak
+
+# Production builds
+dist/
+release/
+build/
+*.exe
+*.apk
+*.zip
+*.blockmap
+
+# Logs and crashes
+*.log
+crash.log
+window_events.log
+load_error.log
+*.txt
+moviebox-gui/extracted_asar/
+
+# Android build outputs
+.gradle/
+moviebox-gui/android/.gradle/
+moviebox-gui/android/app/build/
+moviebox-gui/android/capacitor-cordova-android-plugins/build/
+
+# Large setup binaries and local unpacks
+vlc-3.0.24-win64.exe
+vlc-3-7-1.apk
+tools/
+MovieBox_Plus_App/
+MovieBox-Tui-main/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
