@@ -61,21 +61,20 @@ jobs:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: |
-          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee gradle_build.log
+          mkdir -p capacitor-cordova-android-plugins
+          if [ ! -f "capacitor-cordova-android-plugins/cordova.variables.gradle" ]; then
+            echo "// fallback" > capacitor-cordova-android-plugins/cordova.variables.gradle
+          fi
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: MovieBox-Plus-Android-APK
-          path: moviebox-gui/android/app/build/outputs/apk/debug/*.apk
+          path: |
+            moviebox-gui/android/app/build/outputs/apk/debug/*.apk
+            **/app-debug.apk
           if-no-files-found: error
-
-      - name: Upload Build Log if Failed
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: gradle-failure-log
-          path: moviebox-gui/android/gradle_build.log
 
   # 2. Build Windows Executables (.exe)
   build-windows:
