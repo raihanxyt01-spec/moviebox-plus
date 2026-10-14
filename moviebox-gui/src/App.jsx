@@ -14,6 +14,7 @@ import { getWatchHistory, getRestrictedSettings, filterEligibleMedia, saveWatchH
 import { getPreferredPlayer, setPreferredPlayer, PLAYER_ENGINES, launchExternalPlayback } from './utils/vlcLauncher';
 import ErrorBoundary from './components/ErrorBoundary';
 import ExternalPlayerMissingModal from './components/ExternalPlayerMissingModal';
+import StreamSetupModal from './components/StreamSetupModal';
 import { Loader2, Film, Sparkles, RefreshCw, ShieldAlert, Search, Download, Star, X, CheckCircle2 } from 'lucide-react';
 
 export default function App() {
@@ -41,6 +42,7 @@ export default function App() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isVaultPinModalOpen, setIsVaultPinModalOpen] = useState(false);
   const [selectedMedia, setSelectedMedia] = useState(null);
+  const [shelfQualityModal, setShelfQualityModal] = useState(null);
   const [playerMissingModal, setPlayerMissingModal] = useState({ isOpen: false, player: 'vlc', platform: 'pc' });
   const [preferredPlayer, setPreferredPlayerState] = useState(getPreferredPlayer);
   const [vlcActiveInfo, setVlcActiveInfo] = useState(null);
@@ -247,22 +249,67 @@ export default function App() {
       setVlcLoadingToast(`Resolving highest quality stream for ${item?.title || 'video'} in ${playerName}...`);
       try {
         let streams = { sources: [], subtitles: [] };
-        if (item?.provider === 'fourkhdhub' || item?.path) {
+        const isExplicit4kHd = item?.provider === 'fourkhdhub' || item?.id?.startsWith('fourkhd_') || item?.path;
+
+        if (isExplicit4kHd) {
           streams = await fourkhdApi.getPlayStreams(item.path || item.id, seNum, epNum);
-        } else if (subjectToUse) {
-          streams = await movieboxApi.getPlayStreams(subjectToUse, seNum, epNum);
-          // Automatic fallback to 4K HD Hub if MovieBox returns 0 streams
-          if ((!streams.sources || streams.sources.length === 0) && item?.title) {
-            const fallbackResults = await fourkhdApi.search(item.title);
-            if (fallbackResults && fallbackResults.length > 0) {
-              const bestMatch = fallbackResults[0];
-              streams = await fourkhdApi.getPlayStreams(bestMatch.path || bestMatch.id, seNum, epNum);
+        } else {
+          // 1. First check MovieBox stream server
+          if (subjectToUse) {
+            try {
+              const mbStreams = await movieboxApi.getPlayStreams(subjectToUse, seNum, epNum);
+              if (mbStreams && mbStreams.sources && mbStreams.sources.length > 0) {
+                streams = mbStreams;
+              }
+            } catch (err) {
+              console.warn('MovieBox stream server check failed:', err);
+            }
+          }
+
+          // 2. If MovieBox stream server has no streams, switch automatically to 4K HD Hub for you
+          if ((!streams.sources || streams.sources.length === 0) && (item?.title || item?.path || item?.id)) {
+            try {
+              let targetPath = item.path || (item.id?.startsWith('fourkhd_') ? item.id : null);
+              if (!targetPath && item.title) {
+                const cleanTitle = item.title.replace(/\(\d{4}\)/g, '').replace(/\[.*?\]/g, '').trim();
+                let searchRes = await fourkhdApi.search(cleanTitle);
+                if (!searchRes || searchRes.length === 0) {
+                  searchRes = await fourkhdApi.search(item.title);
+                }
+                if (searchRes && searchRes.length > 0) {
+                  targetPath = searchRes[0].path || searchRes[0].id;
+                }
+              }
+
+              if (targetPath) {
+                const fallbackStreams = await fourkhdApi.getPlayStreams(targetPath, seNum, epNum);
+                if (fallbackStreams && fallbackStreams.sources && fallbackStreams.sources.length > 0) {
+                  streams = fallbackStreams;
+                }
+              }
+            } catch (e) {
+              console.error('Failed to resolve 4K HD Hub fallback streams:', e);
             }
           }
         }
 
         if (streams.sources && streams.sources.length > 0) {
-          source = streams.sources[0];
+          // Smart quality selection for instant playback:
+          // Skip massive 30GB+ raw remuxes that cause long loading and lag unless no other stream exists
+          const balancedStream = streams.sources.find(s => {
+            const sizeStr = (s.size || '').toLowerCase();
+            const match = sizeStr.match(/([\d.]+)\s*gb/);
+            const gb = match ? parseFloat(match[1]) : 0;
+            if (gb >= 30) return false;
+            return s.resolution === 1080 || s.badge?.includes('1080');
+          }) || streams.sources.find(s => {
+            const sizeStr = (s.size || '').toLowerCase();
+            const match = sizeStr.match(/([\d.]+)\s*gb/);
+            const gb = match ? parseFloat(match[1]) : 0;
+            return gb < 30;
+          }) || streams.sources[0];
+
+          source = balancedStream;
           if (source.mirrors && source.mirrors.length > 0 && !source.direct) {
             const resolved = await fourkhdApi.resolveMirror(source.primaryMirror || source.url);
             if (resolved && resolved.url) {
@@ -566,10 +613,11 @@ export default function App() {
               onToggleFavorite={handleToggleFavorite}
             />
 
-            {/* Continue Watching Shelf (Auto-saved progress) */}
+            {/* Continue Watching Shelf (Auto-saved progress with Quality Setup) */}
             <ContinueWatchingShelf
               historyItems={watchHistory}
               onPlayItem={(item, season, episode) => handlePlay(item, season, episode)}
+              onSelectQuality={(item, season, episode) => setShelfQualityModal({ item, season, episode })}
               onRefreshHistory={() => setWatchHistory(getWatchHistory())}
             />
 
@@ -680,6 +728,29 @@ export default function App() {
             setDownloadToast(`Downloading "${title}" • Added to Download Manager`);
             setTimeout(() => setDownloadToast(null), 4500);
           }}
+        />
+      )}
+
+      {/* Continue Watching Stream Quality Setup Modal */}
+      {shelfQualityModal && (
+        <StreamSetupModal
+          item={shelfQualityModal.item}
+          season={shelfQualityModal.season || 0}
+          episode={shelfQualityModal.episode || 0}
+          preferredPlayer={preferredPlayer}
+          onLaunchExternal={(config) => {
+            startExternalPlayback(
+              shelfQualityModal.item,
+              shelfQualityModal.season || 0,
+              shelfQualityModal.episode || 0,
+              config.source,
+              config.subtitleUrl,
+              config.dub,
+              config.player
+            );
+            setShelfQualityModal(null);
+          }}
+          onClose={() => setShelfQualityModal(null)}
         />
       )}
 

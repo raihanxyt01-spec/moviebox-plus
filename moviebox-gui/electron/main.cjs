@@ -1372,10 +1372,9 @@ function launchExternalPlayer({ player = 'vlc', streamUrl, title, subtitleUrl, c
   if (player === 'potplayer') {
     const potPath = findPotPlayerBinary();
     if (potPath) {
-      const args = [finalUrl];
+      const args = [finalUrl, '/current', '/play'];
       if (title) args.push(`/title="${title}"`);
       if (subtitleUrl) args.push(`/sub="${subtitleUrl}"`);
-      args.push('/play');
       const proc = spawn(potPath, args, { detached: true, stdio: 'ignore' });
       proc.unref();
       return { success: true, player: 'potplayer', path: potPath };
@@ -1399,7 +1398,10 @@ function launchExternalPlayer({ player = 'vlc', streamUrl, title, subtitleUrl, c
     };
   }
 
+  // Use single-instance so next episode or subsequent playback replaces media in the existing window without opening duplicate windows
   const args = [
+    '--one-instance',
+    '--no-playlist-enqueue',
     '--network-caching=3000',
     '--file-caching=3000',
     '--clock-jitter=0',
