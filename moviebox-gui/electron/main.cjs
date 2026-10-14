@@ -531,6 +531,7 @@ function createWindow() {
     backgroundColor: '#0b0f19',
     autoHideMenuBar: true,
     title: 'MovieBox Plus',
+    icon: path.join(__dirname, 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,

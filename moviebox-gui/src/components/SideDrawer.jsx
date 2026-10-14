@@ -62,8 +62,12 @@ export default function SideDrawer({
         {/* Header */}
         <div className="p-5 border-b border-surfaceHover flex items-center justify-between bg-background/50">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-accent flex items-center justify-center shadow-lg shadow-accent/25">
-              <Film className="w-5 h-5 text-white" />
+            <div className="w-9 h-9 rounded-xl overflow-hidden shadow-lg shadow-orange-600/30 flex items-center justify-center bg-black border border-orange-500/30">
+              <img 
+                src="/logo.png" 
+                alt="MovieBox+ Logo" 
+                className="w-full h-full object-cover"
+              />
             </div>
             <div className="flex flex-col">
               <span className="text-lg font-black text-white tracking-tight">

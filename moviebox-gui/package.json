@@ -45,8 +45,9 @@
         "nsis",
         "portable"
       ],
-      "requestedExecutionLevel": "asInvoker",
-      "signAndEditExecutable": false
+      "icon": "electron/icon.ico",
+      "signExecutable": false,
+      "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
       "oneClick": true,

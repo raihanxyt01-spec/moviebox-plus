@@ -141,8 +141,12 @@ export default function Navbar({
             className="flex items-center gap-2 cursor-pointer group shrink-0"
             title="MovieBox+ Home"
           >
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-accent flex items-center justify-center shadow-lg shadow-accent/25 group-hover:scale-105 transition-transform">
-              <Film className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl overflow-hidden shadow-lg shadow-orange-600/30 group-hover:scale-105 transition-transform flex items-center justify-center bg-black border border-orange-500/30">
+              <img 
+                src="/logo.png" 
+                alt="MovieBox+ Logo" 
+                className="w-full h-full object-cover"
+              />
             </div>
             <div className="flex flex-col">
               <span className="text-lg sm:text-xl font-extrabold tracking-tight text-white flex items-center">
