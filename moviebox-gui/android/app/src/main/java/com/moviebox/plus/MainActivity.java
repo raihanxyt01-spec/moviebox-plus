@@ -102,28 +102,52 @@ public class MainActivity extends BridgeActivity {
                     intent.putExtra("title_subtitle", subtitleUrl);
                 }
 
-                // Specific player targeting
+                boolean vlcInstalled = checkPackageInstalled(ctx, "org.videolan.vlc");
+                boolean mxInstalled = checkPackageInstalled(ctx, "com.mxtech.videoplayer.ad") || 
+                                      checkPackageInstalled(ctx, "com.mxtech.videoplayer.pro");
+
+                // Specific player targeting or automatic fallback
                 if ("mxplayer".equalsIgnoreCase(targetPlayer)) {
                     if (checkPackageInstalled(ctx, "com.mxtech.videoplayer.ad")) {
                         intent.setPackage("com.mxtech.videoplayer.ad");
                     } else if (checkPackageInstalled(ctx, "com.mxtech.videoplayer.pro")) {
                         intent.setPackage("com.mxtech.videoplayer.pro");
-                    }
-                } else if ("vlc".equalsIgnoreCase(targetPlayer)) {
-                    if (checkPackageInstalled(ctx, "org.videolan.vlc")) {
+                    } else if (vlcInstalled) {
                         intent.setPackage("org.videolan.vlc");
+                    } else {
+                        // Neither player installed -> notify and redirect to Play Store
+                        openPlayStore(ctx, "org.videolan.vlc");
+                        JSObject ret = new JSObject();
+                        ret.put("success", false);
+                        ret.put("notInstalled", true);
+                        ret.put("player", "mxplayer");
+                        call.resolve(ret);
+                        return;
+                    }
+                } else {
+                    // Default: VLC
+                    if (vlcInstalled) {
+                        intent.setPackage("org.videolan.vlc");
+                    } else if (mxInstalled) {
+                        if (checkPackageInstalled(ctx, "com.mxtech.videoplayer.ad")) {
+                            intent.setPackage("com.mxtech.videoplayer.ad");
+                        } else {
+                            intent.setPackage("com.mxtech.videoplayer.pro");
+                        }
+                    } else {
+                        // Neither player installed -> notify and redirect to Play Store
+                        openPlayStore(ctx, "org.videolan.vlc");
+                        JSObject ret = new JSObject();
+                        ret.put("success", false);
+                        ret.put("notInstalled", true);
+                        ret.put("player", "vlc");
+                        call.resolve(ret);
+                        return;
                     }
                 }
 
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                try {
-                    ctx.startActivity(intent);
-                } catch (Exception launchEx) {
-                    intent.setPackage(null);
-                    Intent chooser = Intent.createChooser(intent, "Play " + title + " in:");
-                    chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    ctx.startActivity(chooser);
-                }
+                ctx.startActivity(intent);
 
                 JSObject ret = new JSObject();
                 ret.put("success", true);
@@ -137,6 +161,20 @@ public class MainActivity extends BridgeActivity {
         @PluginMethod
         public void launchVlc(PluginCall call) {
             launchPlayer(call);
+        }
+
+        private void openPlayStore(Context ctx, String packageName) {
+            try {
+                Intent marketIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=" + packageName));
+                marketIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(marketIntent);
+            } catch (Exception e) {
+                try {
+                    Intent webIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=" + packageName));
+                    webIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    ctx.startActivity(webIntent);
+                } catch (Exception ignored) {}
+            }
         }
 
         private boolean checkPackageInstalled(Context context, String packageName) {

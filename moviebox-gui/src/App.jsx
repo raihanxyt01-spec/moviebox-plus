@@ -13,7 +13,7 @@ import { dramachiApi, fourkhdApi, TRANSLATIONS } from './api/providers';
 import { getWatchHistory, getRestrictedSettings, filterEligibleMedia, saveWatchHistoryItem } from './utils/contentFilter';
 import { getPreferredPlayer, setPreferredPlayer, PLAYER_ENGINES, launchExternalPlayback } from './utils/vlcLauncher';
 import ErrorBoundary from './components/ErrorBoundary';
-import VideoPlayerModal from './components/VideoPlayerModal';
+import ExternalPlayerMissingModal from './components/ExternalPlayerMissingModal';
 import { Loader2, Film, Sparkles, RefreshCw, ShieldAlert, Search, Download, Star, X, CheckCircle2 } from 'lucide-react';
 
 export default function App() {
@@ -41,7 +41,7 @@ export default function App() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isVaultPinModalOpen, setIsVaultPinModalOpen] = useState(false);
   const [selectedMedia, setSelectedMedia] = useState(null);
-  const [activeVideo, setActiveVideo] = useState(null);
+  const [playerMissingModal, setPlayerMissingModal] = useState({ isOpen: false, player: 'vlc', platform: 'pc' });
   const [preferredPlayer, setPreferredPlayerState] = useState(getPreferredPlayer);
   const [vlcActiveInfo, setVlcActiveInfo] = useState(null);
   const [vlcLoadingToast, setVlcLoadingToast] = useState(null);
@@ -311,6 +311,17 @@ export default function App() {
         player: chosenPlayer
       });
 
+      setVlcLoadingToast(null);
+
+      if (res && res.notInstalled) {
+        setPlayerMissingModal({
+          isOpen: true,
+          player: res.player || chosenPlayer,
+          platform: (window.electronAPI ? 'pc' : (/Android|iPhone|iPad/i.test(navigator.userAgent) ? 'mobile' : 'pc'))
+        });
+        return res;
+      }
+
       const playerName = chosenPlayer === 'potplayer' ? 'PotPlayer' :
                          chosenPlayer === 'mxplayer' ? 'MX Player' :
                          chosenPlayer === 'system' ? 'System Player' : 'VLC Media Player';
@@ -329,6 +340,7 @@ export default function App() {
 
       return res;
     } else {
+      setVlcLoadingToast(null);
       alert('Unable to resolve stream link for playback.');
     }
   };
@@ -337,29 +349,26 @@ export default function App() {
 
   const handlePlay = (item, season = 0, episode = 0, forceEngine = null, customSource = null, customSubtitle = null, customDub = null) => {
     setSelectedMedia(null);
-    setActiveVideo({
+    startExternalPlayback(
       item,
-      season: Number(season) || 0,
-      episode: Number(episode) || 0,
-      source: customSource,
-      subtitle: customSubtitle,
-      dub: customDub
-    });
+      Number(season) || 0,
+      Number(episode) || 0,
+      customSource,
+      customSubtitle,
+      customDub,
+      forceEngine
+    );
   };
 
   const handlePlayOfflineFile = (fileItem) => {
     setSelectedMedia(null);
-    setActiveVideo({
-      item: {
-        id: fileItem.id || `offline_${Date.now()}`,
-        title: fileItem.title || fileItem.filename || 'Downloaded Video',
-        cover: fileItem.cover || '',
-        type: 'Movie',
-        offlineUrl: fileItem.path || fileItem.url
-      },
-      season: 0,
-      episode: 0
-    });
+    startExternalPlayback({
+      id: fileItem.id || `offline_${Date.now()}`,
+      title: fileItem.title || fileItem.filename || 'Downloaded Video',
+      cover: fileItem.cover || '',
+      type: 'Movie',
+      filePath: fileItem.filePath || fileItem.path || fileItem.url
+    }, 0, 0);
   };
 
   const handleOpenExternalPlayer = async (item, season = 0, episode = 0, sourceObj = null) => {
@@ -674,18 +683,13 @@ export default function App() {
         />
       )}
 
-      {/* Integrated In-App Video Player (Zero External Redirection) */}
-      {activeVideo && (
-        <VideoPlayerModal
-          item={activeVideo.item}
-          season={activeVideo.season}
-          episode={activeVideo.episode}
-          onClose={() => setActiveVideo(null)}
-          onNavigateEpisode={(newSe, newEp) => {
-            setActiveVideo(prev => prev ? { ...prev, season: newSe, episode: newEp } : null);
-          }}
-        />
-      )}
+      {/* External Video Player Required Modal (Deep-link to Store or Official Portals) */}
+      <ExternalPlayerMissingModal
+        isOpen={playerMissingModal.isOpen}
+        player={playerMissingModal.player}
+        platform={playerMissingModal.platform}
+        onClose={() => setPlayerMissingModal(prev => ({ ...prev, isOpen: false }))}
+      />
 
 
       {/* Mobile Bottom Navigation Bar (Android & Mobile screens) */}

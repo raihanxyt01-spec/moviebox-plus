@@ -89,7 +89,7 @@ export async function launchExternalPlayback({ url, title, subtitleUrl, cookie, 
         subtitleUrl: subtitleUrl || null,
         cookie: cookie || null
       });
-      return { success: true, ...res };
+      return res;
     } catch (err) {
       console.error('Electron launchPlayer error:', err);
       return { success: false, error: err.message };
@@ -106,10 +106,10 @@ export async function launchExternalPlayback({ url, title, subtitleUrl, cookie, 
         subtitleUrl: subtitleUrl || null,
         cookie: cookie || null
       });
-      return { success: true, ...res };
+      return res;
     } catch (err) {
       console.error('Android launchPlayer error:', err);
-      // Fallback: try web intent
+      return { success: false, notInstalled: true, player: chosenPlayer, error: err.message };
     }
   }
 

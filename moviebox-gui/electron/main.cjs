@@ -1322,7 +1322,7 @@ function findVlcBinary() {
     if (fs.existsSync(p)) return p;
   }
 
-  return 'vlc';
+  return null;
 }
 
 function findPotPlayerBinary() {
@@ -1380,13 +1380,28 @@ function launchExternalPlayer({ player = 'vlc', streamUrl, title, subtitleUrl, c
       proc.unref();
       return { success: true, player: 'potplayer', path: potPath };
     }
+    return {
+      success: false,
+      notInstalled: true,
+      player: 'potplayer',
+      downloadUrl: 'https://potplayer.daum.net/'
+    };
   }
 
   // 2. VLC Media Player integration (Default)
   const vlcPath = findVlcBinary();
+  if (!vlcPath) {
+    return {
+      success: false,
+      notInstalled: true,
+      player: 'vlc',
+      downloadUrl: 'https://www.videolan.org/vlc/'
+    };
+  }
+
   const args = [
-    '--network-caching=1500',
-    '--file-caching=1500',
+    '--network-caching=3000',
+    '--file-caching=3000',
     '--clock-jitter=0',
     '--clock-synchro=0',
     '--http-reconnect',
@@ -1413,10 +1428,13 @@ function launchExternalPlayer({ player = 'vlc', streamUrl, title, subtitleUrl, c
     return { success: true, player: 'vlc', path: vlcPath };
   } catch (err) {
     console.error('Failed to spawn VLC:', err);
-    try {
-      shell.openExternal(finalUrl);
-    } catch (e) {}
-    return { success: false, error: err.message };
+    return {
+      success: false,
+      notInstalled: true,
+      player: 'vlc',
+      downloadUrl: 'https://www.videolan.org/vlc/',
+      error: err.message
+    };
   }
 }
 
