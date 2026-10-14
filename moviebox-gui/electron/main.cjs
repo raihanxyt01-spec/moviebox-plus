@@ -6,16 +6,18 @@ const http = require('http');
 const https = require('https');
 const { URL } = require('url');
 
-// Enable hardware accelerated HEVC / H.265 decoding for Chromium video engine
-app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport,VaapiVideoDecoder,CanvasOopRasterization');
+// Ultra-high performance hardware accelerated GPU rendering & video decoding pipeline
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
+app.commandLine.appendSwitch('enable-hardware-overlays');
 app.commandLine.appendSwitch('enable-accelerated-video-decode');
 app.commandLine.appendSwitch('enable-accelerated-mjpeg-decode');
 app.commandLine.appendSwitch('enable-gpu-memory-buffer-video-frames');
 app.commandLine.appendSwitch('enable-native-gpu-memory-buffers');
 app.commandLine.appendSwitch('disable-frame-rate-limit');
+app.commandLine.appendSwitch('use-angle', 'd3d11');
+app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport,VaapiVideoDecoder,CanvasOopRasterization,UseMultiPlaneFormatForHardwareVideo');
 
 // High performance persistent connection agents to avoid TCP/TLS handshake latency on media segments
 const httpAgent = new http.Agent({

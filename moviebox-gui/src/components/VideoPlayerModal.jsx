@@ -65,6 +65,9 @@ export default function VideoPlayerModal({
   const [isLocked, setIsLocked] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLongPressing2x, setIsLongPressing2x] = useState(false);
+  const [renderedFps, setRenderedFps] = useState(60);
+  const fpsFrameCountRef = useRef(0);
+  const fpsLastTimeRef = useRef(performance.now());
   const [seekFeedback, setSeekFeedback] = useState(null); // { type: 'forward' | 'rewind', seconds: 10 }
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
@@ -295,8 +298,9 @@ export default function VideoPlayerModal({
 
       if (isCancelled) return;
 
-      // In Electron environment, route DASH, authenticated, and all direct CDN streams through the local proxy
-      if (window.electronAPI?.getProxyUrl && streamUrl && (streamUrl.startsWith('http://') || streamUrl.startsWith('https://'))) {
+      // In Electron environment, route DASH, authenticated, and MovieBox streams through the local proxy
+      const needsProxy = isDash || Boolean(selectedSource.cookie) || streamUrl.includes('aoneroom.com') || streamUrl.includes('inmoviebox.com');
+      if (needsProxy && window.electronAPI?.getProxyUrl && streamUrl && (streamUrl.startsWith('http://') || streamUrl.startsWith('https://'))) {
         try {
           streamUrl = await window.electronAPI.getProxyUrl(streamUrl, selectedSource.cookie || '');
         } catch (e) {
@@ -375,6 +379,7 @@ export default function VideoPlayerModal({
                 lang: a.lang || 'Unknown',
                 label: a.labels?.[0]?.text || a.lang || `Track ${idx + 1}`
               })));
+              player.setCurrentTrack(audios[0]);
             } else if (dubsData && dubsData.length > 0) {
               setAudioTracks(dubsData.map((d, idx) => ({
                 index: idx,
@@ -383,6 +388,9 @@ export default function VideoPlayerModal({
                 label: d.label
               })));
             }
+
+            player.setMute(isMuted);
+            player.setVolume(volume > 0 ? volume : 1);
 
             // Enumerate embedded subtitles
             const subs = player.getTracksFor('text') || [];
@@ -484,7 +492,8 @@ export default function VideoPlayerModal({
       }
 
       // Apply initial volume and playback speed
-      video.volume = volume;
+      video.muted = isMuted;
+      video.volume = volume > 0 ? volume : 1;
       video.playbackRate = playbackSpeed;
     };
 
@@ -503,20 +512,102 @@ export default function VideoPlayerModal({
     };
   }, [selectedSource]);
 
+  // Real-time hardware rendering FPS detection
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !('requestVideoFrameCallback' in HTMLVideoElement.prototype)) return;
+
+    let callbackId;
+    const onFrame = (now) => {
+      fpsFrameCountRef.current++;
+      const elapsed = now - fpsLastTimeRef.current;
+      if (elapsed >= 1000) {
+        const measuredFps = Math.round((fpsFrameCountRef.current * 1000) / elapsed);
+        if (measuredFps >= 15 && measuredFps <= 165) {
+          setRenderedFps(measuredFps);
+        }
+        fpsFrameCountRef.current = 0;
+        fpsLastTimeRef.current = now;
+      }
+      callbackId = video.requestVideoFrameCallback(onFrame);
+    };
+
+    callbackId = video.requestVideoFrameCallback(onFrame);
+    return () => {
+      if (callbackId && video.cancelVideoFrameCallback) {
+        video.cancelVideoFrameCallback(callbackId);
+      }
+    };
+  }, [selectedSource]);
+
   // Video Time & Progress Updates
   const handleTimeUpdate = () => {
     const video = videoRef.current;
     if (!video) return;
 
-    setCurrentTime(video.currentTime);
-    setDuration(video.duration || 0);
-    setProgress((video.currentTime / (video.duration || 1)) * 100);
+    const cur = video.currentTime || 0;
+    setCurrentTime(cur);
+
+    let dur = (isFinite(video.duration) && video.duration > 0)
+      ? video.duration
+      : (dashRef.current?.duration ? dashRef.current.duration() : 0);
+    
+    if (dur > 0) {
+      setDuration(dur);
+      setProgress((cur / dur) * 100);
+    }
 
     // Save playback position periodically
-    if (Math.floor(video.currentTime) % 5 === 0) {
-      localStorage.setItem(resumeKey, video.currentTime.toString());
-      saveWatchHistoryItem(item, video.currentTime, video.duration, currentSeNumber, currentEpNumber);
+    if (Math.floor(cur) % 5 === 0 && cur > 0) {
+      localStorage.setItem(resumeKey, cur.toString());
+      saveWatchHistoryItem(item, cur, dur, currentSeNumber, currentEpNumber);
     }
+  };
+
+  const handleLoadedMetadata = () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    let dur = (isFinite(video.duration) && video.duration > 0)
+      ? video.duration
+      : (dashRef.current?.duration ? dashRef.current.duration() : 0);
+    if (dur > 0) {
+      setDuration(dur);
+    }
+
+    video.muted = isMuted;
+    video.volume = volume > 0 ? volume : 1;
+    setIsLoading(false);
+
+    // Enumerate HTML5 video audio tracks if present
+    if (video.audioTracks && video.audioTracks.length > 0) {
+      const aTracks = [];
+      for (let i = 0; i < video.audioTracks.length; i++) {
+        const trk = video.audioTracks[i];
+        aTracks.push({
+          index: i,
+          lang: trk.language || 'und',
+          label: trk.label || trk.language || `Audio Track ${i + 1}`
+        });
+      }
+      setAudioTracks(aTracks);
+    }
+
+    // Resume seek target
+    const seekTarget = pendingSeekRef.current !== null 
+      ? pendingSeekRef.current 
+      : Number(localStorage.getItem(resumeKey) || 0);
+    pendingSeekRef.current = null;
+    if (seekTarget > 0 && dur > 0 && seekTarget < dur) {
+      video.currentTime = seekTarget;
+    }
+  };
+
+  const handleDurationChange = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    const dur = (isFinite(video.duration) && video.duration > 0) ? video.duration : 0;
+    if (dur > 0) setDuration(dur);
   };
 
   // Video Ended -> Trigger Autoplay Next Episode
@@ -944,20 +1035,48 @@ export default function VideoPlayerModal({
 
     doubleTapTimerRef.current = { lastTap: now, lastX: touch.clientX };
 
-    // Long-press 2X speed detection
+    // Long-press 2X speed detection (YouTube style)
     longPressTimerRef.current = setTimeout(() => {
       if (videoRef.current && isPlaying) {
-        previousSpeedRef.current = videoRef.current.playbackRate;
+        previousSpeedRef.current = videoRef.current.playbackRate || 1;
         videoRef.current.playbackRate = 2.0;
         setIsLongPressing2x(true);
       }
-    }, 500);
+    }, 280);
   };
 
   const handleTouchEnd = () => {
-    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
     if (isLongPressing2x && videoRef.current) {
-      videoRef.current.playbackRate = previousSpeedRef.current;
+      videoRef.current.playbackRate = previousSpeedRef.current || 1;
+      setIsLongPressing2x(false);
+    }
+  };
+
+  // PC MOUSE GESTURES: Click-and-hold 2X Fast Forward (YouTube style)
+  const handleMouseDown = (e) => {
+    if (e.button !== 0 || isLocked) return;
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+
+    longPressTimerRef.current = setTimeout(() => {
+      if (videoRef.current && isPlaying) {
+        previousSpeedRef.current = videoRef.current.playbackRate || 1;
+        videoRef.current.playbackRate = 2.0;
+        setIsLongPressing2x(true);
+      }
+    }, 280);
+  };
+
+  const handleMouseUp = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    if (isLongPressing2x && videoRef.current) {
+      videoRef.current.playbackRate = previousSpeedRef.current || 1;
       setIsLongPressing2x(false);
     }
   };
@@ -1090,6 +1209,15 @@ export default function VideoPlayerModal({
                 <span>{currentQualityBadge}</span>
               </button>
             )}
+            {renderedFps && (
+              <div 
+                title="Real-time GPU Hardware Decoded FPS" 
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-sm"
+              >
+                <Gauge className="w-3.5 h-3.5 text-emerald-400" />
+                <span>{renderedFps} FPS</span>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -1170,6 +1298,9 @@ export default function VideoPlayerModal({
               setControlsVisible(prev => !prev);
             }
           }}
+          onMouseDown={handleMouseDown}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
           onTouchCancel={handleTouchEnd}
@@ -1240,13 +1371,20 @@ export default function VideoPlayerModal({
               imageRendering: '-webkit-optimize-contrast',
               transform: 'translateZ(0)',
               willChange: 'transform',
-              backfaceVisibility: 'hidden',
-              filter: 'contrast(102%) saturate(102%)'
+              backfaceVisibility: 'hidden'
             }}
             preload="auto"
             autoPlay
             playsInline
-            crossOrigin="anonymous"
+            onTimeUpdate={handleTimeUpdate}
+            onLoadedMetadata={handleLoadedMetadata}
+            onDurationChange={handleDurationChange}
+            onPlay={() => setIsPlaying(true)}
+            onPause={() => setIsPlaying(false)}
+            onEnded={handleVideoEnded}
+            onWaiting={() => setIsLoading(true)}
+            onPlaying={() => setIsLoading(false)}
+            onCanPlay={() => setIsLoading(false)}
           >
             {/* Active Subtitle Track */}
             {selectedSubtitle !== 'off' && subtitles.find(s => s.label === selectedSubtitle)?.url && (

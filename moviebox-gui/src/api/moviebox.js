@@ -35,6 +35,7 @@ export function isDeprecationNoticeUrl(url) {
   return lower.includes('1c7de0bd3393702d9191801f15f88f8d')
     || lower.includes('9a0461bc39da389663bf3dbb17091d3f')
     || lower.includes('b164fbfb4347792950bdfbfb563d39d9')
+    || lower.includes('80da52722ee7de7a4303290af6783424')
     || lower.includes('/notice.mp4')
     || (lower.includes('macdn.aoneroom.com') && lower.includes('/other/'));
 }
@@ -553,7 +554,8 @@ function parseResolutionInfo(val, labelHint = '') {
       }
 
       // 2. Direct MP4 stream (reject fake 22-second notice ads)
-      if (s.url && !isDeprecationNoticeUrl(s.url)) {
+      const isShortFake = s.duration && s.duration > 0 && s.duration <= 60;
+      if (s.url && !isDeprecationNoticeUrl(s.url) && !isShortFake) {
         const mp4Info = parseResolutionInfo(s.resolutions, '720p');
         const sizeStr = totalSize ? this.formatBytes(totalSize) : '';
         const key = `direct_${s.url}`;
@@ -582,7 +584,8 @@ function parseResolutionInfo(val, labelHint = '') {
     // 3. Multi-resolution mirrors from resource API (4K, 1080p, 720p, 480p)
     for (const r of resources) {
       const link = r.resourceLink || r.url;
-      if (link && !isDeprecationNoticeUrl(link)) {
+      const isResShortFake = r.duration && r.duration > 0 && r.duration <= 60;
+      if (link && !isDeprecationNoticeUrl(link) && !isResShortFake) {
         const key = `res_${link}`;
         if (!seenKeys.has(key)) {
           seenKeys.add(key);
