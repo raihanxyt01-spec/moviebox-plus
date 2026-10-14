@@ -13,6 +13,7 @@ import { dramachiApi, TRANSLATIONS } from './api/providers';
 import { getWatchHistory, getRestrictedSettings, filterEligibleMedia, saveWatchHistoryItem } from './utils/contentFilter';
 import { getPreferredPlayer, setPreferredPlayer, PLAYER_ENGINES, launchExternalPlayback } from './utils/vlcLauncher';
 import ErrorBoundary from './components/ErrorBoundary';
+import VideoPlayerModal from './components/VideoPlayerModal';
 import { Loader2, Film, Sparkles, RefreshCw, ShieldAlert, Search, Download, Star, X, CheckCircle2 } from 'lucide-react';
 
 export default function App() {
@@ -36,10 +37,11 @@ export default function App() {
   const [watchHistory, setWatchHistory] = useState(() => getWatchHistory());
   const [restrictedEnabled, setRestrictedEnabled] = useState(() => getRestrictedSettings().enabled);
 
-  // Modals, Drawers & External Playback Engine
+  // Modals, Drawers & Playback Engine
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isVaultPinModalOpen, setIsVaultPinModalOpen] = useState(false);
   const [selectedMedia, setSelectedMedia] = useState(null);
+  const [activeVideo, setActiveVideo] = useState(null);
   const [preferredPlayer, setPreferredPlayerState] = useState(getPreferredPlayer);
   const [vlcActiveInfo, setVlcActiveInfo] = useState(null);
   const [vlcLoadingToast, setVlcLoadingToast] = useState(null);
@@ -292,12 +294,29 @@ export default function App() {
 
   const handlePlay = (item, season = 0, episode = 0, forceEngine = null, customSource = null, customSubtitle = null, customDub = null) => {
     setSelectedMedia(null);
-    startExternalPlayback(item, season, episode, customSource, customSubtitle, customDub, forceEngine);
+    setActiveVideo({
+      item,
+      season: Number(season) || 0,
+      episode: Number(episode) || 0,
+      source: customSource,
+      subtitle: customSubtitle,
+      dub: customDub
+    });
   };
 
   const handlePlayOfflineFile = (fileItem) => {
     setSelectedMedia(null);
-    startExternalPlayback(fileItem, 0, 0, null, null, null, preferredPlayer);
+    setActiveVideo({
+      item: {
+        id: fileItem.id || `offline_${Date.now()}`,
+        title: fileItem.title || fileItem.filename || 'Downloaded Video',
+        cover: fileItem.cover || '',
+        type: 'Movie',
+        offlineUrl: fileItem.path || fileItem.url
+      },
+      season: 0,
+      episode: 0
+    });
   };
 
   const handleOpenExternalPlayer = async (item, season = 0, episode = 0, sourceObj = null) => {
@@ -608,6 +627,19 @@ export default function App() {
           onDownloadStart={(title) => {
             setDownloadToast(`Downloading "${title}" • Added to Download Manager`);
             setTimeout(() => setDownloadToast(null), 4500);
+          }}
+        />
+      )}
+
+      {/* Integrated In-App Video Player (Zero External Redirection) */}
+      {activeVideo && (
+        <VideoPlayerModal
+          item={activeVideo.item}
+          season={activeVideo.season}
+          episode={activeVideo.episode}
+          onClose={() => setActiveVideo(null)}
+          onNavigateEpisode={(newSe, newEp) => {
+            setActiveVideo(prev => prev ? { ...prev, season: newSe, episode: newEp } : null);
           }}
         />
       )}

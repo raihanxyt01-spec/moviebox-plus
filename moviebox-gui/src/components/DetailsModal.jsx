@@ -226,17 +226,17 @@ export default function DetailsModal({
             {/* Quick Actions */}
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-3">
-                {/* Primary Action: Watch in External Player (VLC / PotPlayer / MX Player) */}
+                {/* Primary Action: Watch Now (Integrated Player) */}
                 <button
-                  onClick={() => onPlay(currentDetails, isSeries ? selectedSeason : 0, isSeries ? selectedEpisode : 0, preferredPlayer, null, null, activeDub)}
+                  onClick={() => onPlay(currentDetails, isSeries ? selectedSeason : 0, isSeries ? selectedEpisode : 0, null, null, null, activeDub)}
                   className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-bold text-sm shadow-xl shadow-orange-600/30 hover:scale-105 active:scale-95 transition-all"
-                  title="Play with external media player for native 10-bit hardware acceleration and lossless quality"
+                  title="Play immediately in integrated MovieBox+ player"
                 >
                   <Play className="w-4 h-4 fill-current" />
                   <span>
                     {isSeries 
-                      ? `Watch S${selectedSeason}:E${selectedEpisode} (External HD)` 
-                      : `Watch in ${preferredPlayer === 'potplayer' ? 'PotPlayer' : (preferredPlayer === 'mxplayer' ? 'MX Player' : 'VLC')} (Ultra HD)`}
+                      ? `Watch S${selectedSeason}:E${selectedEpisode}` 
+                      : 'Watch Now (Ultra HD)'}
                   </span>
                 </button>
 
@@ -470,7 +470,7 @@ export default function DetailsModal({
                         key={epNum}
                         onClick={() => {
                           setSelectedEpisode(epNum);
-                          onPlay(currentDetails, selectedSeason, epNum, 'vlc', null, null, activeDub);
+                          onPlay(currentDetails, selectedSeason, epNum, null, null, null, activeDub);
                         }}
                         className={`relative p-3 rounded-xl text-center text-xs font-bold transition-all ${
                           isSelected
@@ -506,7 +506,7 @@ export default function DetailsModal({
             preferredPlayer={preferredPlayer}
             onLaunchExternal={(config) => {
               if (config.dub) setActiveDub(config.dub);
-              onPlay(currentDetails, isSeries ? selectedSeason : 0, isSeries ? selectedEpisode : 0, preferredPlayer, config.source, config.subtitleUrl, config.dub || activeDub);
+              onPlay(currentDetails, isSeries ? selectedSeason : 0, isSeries ? selectedEpisode : 0, null, config.source, config.subtitleUrl, config.dub || activeDub);
             }}
             onClose={() => setShowStreamSetupModal(false)}
           />

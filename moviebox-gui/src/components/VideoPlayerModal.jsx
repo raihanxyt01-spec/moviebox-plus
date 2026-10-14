@@ -157,8 +157,8 @@ export default function VideoPlayerModal({
     setQualityLevels([]);
 
     // If local offline video
-    if (item.localPath || (item.url && item.url.startsWith('file:'))) {
-      const offlineUrl = item.url || `file://${item.localPath.replace(/\\/g, '/')}`;
+    if (item.offlineUrl || item.localPath || (item.url && (item.url.startsWith('file:') || item.url.startsWith('blob:')))) {
+      const offlineUrl = item.offlineUrl || item.url || (item.localPath ? `file://${item.localPath.replace(/\\/g, '/')}` : '');
       const src = {
         label: 'Local File (Offline)',
         resolution: 1080,
@@ -1044,16 +1044,6 @@ export default function VideoPlayerModal({
               className="p-2 rounded-xl bg-surface/80 hover:bg-surface text-gray-300 hover:text-white transition-all backdrop-blur-md"
             >
               {isLocked ? <Lock className="w-4 h-4 text-accent" /> : <Unlock className="w-4 h-4" />}
-            </button>
-
-            {/* Play in VLC Button (Lossless 10-bit Direct3D11 Quality) */}
-            <button
-              onClick={handleSwitchToVlc}
-              title="Play in VLC Media Player (Lossless Direct3D11 Quality & Native Hardware Acceleration)"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-xs font-bold text-white shadow-lg shadow-orange-600/30 backdrop-blur-md hover:scale-105 active:scale-95 transition-all"
-            >
-              <Film className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Play in VLC (HD)</span>
             </button>
 
             {/* Download Button */}

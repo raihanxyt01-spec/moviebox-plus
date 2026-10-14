@@ -17,6 +17,8 @@ export default function HeroBanner({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
   const timerRef = useRef(null);
+  const touchStartXRef = useRef(0);
+  const touchDeltaXRef = useRef(0);
 
   // Auto-slide every 5.5 seconds if not hovered
   useEffect(() => {
@@ -39,19 +41,46 @@ export default function HeroBanner({
     : Boolean(isFavorite);
 
   const handlePrev = (e) => {
-    e.stopPropagation();
+    if (e?.stopPropagation) e.stopPropagation();
     setCurrentIndex((prev) => (prev - 1 + slideItems.length) % slideItems.length);
   };
 
   const handleNext = (e) => {
-    e.stopPropagation();
+    if (e?.stopPropagation) e.stopPropagation();
     setCurrentIndex((prev) => (prev + 1) % slideItems.length);
+  };
+
+  const handleTouchStart = (e) => {
+    if (e.touches && e.touches.length === 1) {
+      touchStartXRef.current = e.touches[0].clientX;
+      touchDeltaXRef.current = 0;
+    }
+  };
+
+  const handleTouchMove = (e) => {
+    if (e.touches && e.touches.length === 1) {
+      touchDeltaXRef.current = e.touches[0].clientX - touchStartXRef.current;
+    }
+  };
+
+  const handleTouchEnd = () => {
+    const delta = touchDeltaXRef.current;
+    if (delta > 45) {
+      handlePrev();
+    } else if (delta < -45) {
+      handleNext();
+    }
+    touchStartXRef.current = 0;
+    touchDeltaXRef.current = 0;
   };
 
   return (
     <div 
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
       className="relative w-full h-[400px] sm:h-[500px] rounded-3xl overflow-hidden mb-8 shadow-2xl border border-surfaceHover/50 group select-none"
     >
       {/* Background Poster Backdrop with Smooth Transitions */}
@@ -137,7 +166,7 @@ export default function HeroBanner({
 
         {/* Synopsis */}
         <p className="text-sm sm:text-base text-gray-300 line-clamp-2 leading-relaxed drop-shadow">
-          {currentItem.synopsis || currentItem.description || 'Watch now in lossless ultra-high definition with external player hardware acceleration and instant streaming.'}
+          {currentItem.synopsis || currentItem.description || 'Watch now in lossless ultra-high definition with integrated hardware acceleration and instant streaming.'}
         </p>
 
         {/* Action Buttons */}
@@ -173,9 +202,9 @@ export default function HeroBanner({
 
       </div>
 
-      {/* Carousel Indicator Dots */}
+      {/* Carousel Indicator Dots - Positioned safely so they never overlap action buttons */}
       {slideItems.length > 1 && (
-        <div className="absolute bottom-4 sm:bottom-6 right-6 sm:right-10 z-20 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3.5 py-2 rounded-full border border-white/10">
+        <div className="absolute top-4 sm:top-auto sm:bottom-6 right-4 sm:right-10 z-20 flex items-center gap-1.5 sm:gap-2 bg-black/60 sm:bg-black/40 backdrop-blur-md px-3 sm:px-3.5 py-1.5 sm:py-2 rounded-full border border-white/10 shadow-lg">
           {slideItems.map((_, idx) => (
             <button
               key={idx}
@@ -183,12 +212,12 @@ export default function HeroBanner({
               aria-label={`Jump to slide ${idx + 1}`}
               className={`transition-all duration-300 rounded-full ${
                 idx === currentIndex
-                  ? 'w-6 h-2 bg-orange-500'
-                  : 'w-2 h-2 bg-white/40 hover:bg-white/70'
+                  ? 'w-5 sm:w-6 h-1.5 sm:h-2 bg-orange-500'
+                  : 'w-1.5 sm:w-2 h-1.5 sm:h-2 bg-white/40 hover:bg-white/70'
               }`}
             />
           ))}
-          <span className="text-[11px] font-bold text-gray-300 ml-1.5 font-mono">
+          <span className="text-[10px] sm:text-[11px] font-bold text-gray-200 sm:text-gray-300 ml-1 sm:ml-1.5 font-mono">
             {currentIndex + 1}/{slideItems.length}
           </span>
         </div>

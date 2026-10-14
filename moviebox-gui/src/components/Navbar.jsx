@@ -118,8 +118,11 @@ export default function Navbar({
   const activeLangObj = LANGUAGES.find(l => l.code === currentLanguage) || LANGUAGES[0];
 
   return (
-    <header className="sticky top-0 z-40 bg-background/90 backdrop-blur-md border-b border-surfaceHover px-3 sm:px-6 py-2.5 sm:py-3 transition-all w-full">
-      <div className="w-full max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-4">
+    <header 
+      style={{ paddingTop: 'max(0.625rem, env(safe-area-inset-top))' }}
+      className="sticky top-0 z-40 bg-background/95 backdrop-blur-md border-b border-surfaceHover px-2.5 sm:px-6 pb-2.5 sm:pb-3 transition-all w-full"
+    >
+      <div className="w-full max-w-7xl mx-auto flex items-center justify-between gap-1.5 sm:gap-4">
         
         {/* Brand & Nav */}
         <div className="flex items-center gap-2 sm:gap-3.5 shrink-0">
@@ -411,7 +414,7 @@ export default function Navbar({
           </div>
 
           {/* External Player Engine Switcher Dropdown (VLC, PotPlayer, MX Player, System) */}
-          <div ref={playerRef} className="relative shrink-0">
+          <div ref={playerRef} className="relative shrink-0 hidden md:block">
             <button
               onClick={() => setShowPlayerMenu(!showPlayerMenu)}
               className="flex items-center gap-1.5 p-2 sm:px-2.5 sm:py-1.5 rounded-xl bg-orange-600/20 hover:bg-orange-600/30 text-orange-400 text-xs font-bold border border-orange-500/40 transition-all shadow-sm shrink-0"
