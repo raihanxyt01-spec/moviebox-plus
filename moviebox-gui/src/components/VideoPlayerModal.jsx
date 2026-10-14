@@ -4,7 +4,7 @@ import {
   SkipForward, SkipBack, Download, ListVideo, Loader2, 
   Languages, Check, ArrowRight, RotateCcw, RotateCw, 
   Subtitles, Gauge, HelpCircle, Lock, Unlock, PictureInPicture,
-  Tv, Film, AlertCircle, FileText
+  Tv, Film, AlertCircle, FileText, Sun
 } from 'lucide-react';
 import Hls from 'hls.js';
 import dashjs from 'dashjs';
@@ -50,8 +50,12 @@ export default function VideoPlayerModal({
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(() => {
     const saved = localStorage.getItem('mb_volume');
-    return saved !== null ? Number(saved) : 1;
+    return saved !== null && Number(saved) > 0 ? Number(saved) : 1;
   });
+  const [brightness, setBrightness] = useState(1.0);
+  const [gestureOverlay, setGestureOverlay] = useState(null); // { type: 'volume' | 'brightness', value: number }
+  const gestureOverlayTimeoutRef = useRef(null);
+  const touchStartDataRef = useRef(null);
   const [progress, setProgress] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -88,6 +92,12 @@ export default function VideoPlayerModal({
   const doubleTapTimerRef = useRef({ lastTap: 0, x: 0 });
   const previousSpeedRef = useRef(1);
   const fileInputRef = useRef(null);
+
+  const showGestureFeedback = (type, value) => {
+    setGestureOverlay({ type, value });
+    if (gestureOverlayTimeoutRef.current) clearTimeout(gestureOverlayTimeoutRef.current);
+    gestureOverlayTimeoutRef.current = setTimeout(() => setGestureOverlay(null), 900);
+  };
 
   const isSeries = item?.type === 'Series';
   const currentEpNumber = isSeries ? (episode > 0 ? episode : 1) : 0;
@@ -213,8 +223,19 @@ export default function VideoPlayerModal({
 
       if (sourcesList.length > 0) {
         setSources(sourcesList);
-        // Automatically select the HIGHEST available quality by default
-        setSelectedSource(sourcesList[0]);
+        // Automatically select the best streaming-friendly 1080p source by default (avoiding 30GB uncompressed remux network stall)
+        let defaultSource = sourcesList[0];
+        if (sourcesList.length > 1) {
+          const streamFriendly = sourcesList.find(s => {
+            const sz = (s.size || '').toLowerCase();
+            const gb = parseFloat(sz);
+            return sz.includes('gb') && gb >= 2.0 && gb <= 12.0;
+          });
+          if (streamFriendly) {
+            defaultSource = streamFriendly;
+          }
+        }
+        setSelectedSource(defaultSource);
         setSubtitles(subList);
         
         // Auto-select English subtitle if available, otherwise first available subtitle
@@ -222,9 +243,9 @@ export default function VideoPlayerModal({
           setSelectedSubtitle(res.defaultSubtitle);
         }
 
-        const topBadge = sourcesList[0]?.badge || '1080p';
-        const sizeInfo = sourcesList[0]?.size ? ` (${sourcesList[0].size})` : '';
-        showToast(`Playing ${topBadge}${sizeInfo} - Highest Quality`);
+        const topBadge = defaultSource?.badge || '1080p';
+        const sizeInfo = defaultSource?.size ? ` (${defaultSource.size})` : '';
+        showToast(`Playing ${topBadge}${sizeInfo} - Lossless Quality`);
       } else {
         setErrorMsg('No available stream sources found for this title.');
       }
@@ -317,18 +338,18 @@ export default function VideoPlayerModal({
           player.updateSettings({
             streaming: {
               lowLatencyEnabled: false,
-              fastSwitchEnabled: true,
-              jumpGaps: true,
+              fastSwitchEnabled: false,
+              jumpGaps: false,
               buffer: {
-                fastSwitchEnabled: true,
-                initialBufferTarget: 4.0,
-                bufferTimeAtTopQuality: 40,
-                stableBufferTime: 25,
-                bufferToKeep: 90,
-                stallThreshold: 0.5,
+                fastSwitchEnabled: false,
+                initialBufferTarget: 8.0,
+                bufferTimeAtTopQuality: 60,
+                stableBufferTime: 30,
+                bufferToKeep: 120,
+                stallThreshold: 0.05,
               },
               abr: {
-                autoSwitchBitrate: { video: true, audio: true },
+                autoSwitchBitrate: { video: false, audio: false },
                 ABRStrategy: 'abrBola',
                 switchSensitivity: 0.5,
                 bandwidthSafetyFactor: 0.9,
@@ -468,6 +489,11 @@ export default function VideoPlayerModal({
             hls.currentLevel = targetIdx;
           }
 
+          // Apply unmuted 100% volume and playback speed before playing
+          video.muted = false;
+          video.volume = volume > 0 ? volume : 1;
+          video.playbackRate = playbackSpeed;
+
           const seekTarget = pendingSeekRef.current !== null 
             ? pendingSeekRef.current 
             : Number(localStorage.getItem(resumeKey) || 0);
@@ -475,11 +501,18 @@ export default function VideoPlayerModal({
           if (seekTarget > 0) {
             video.currentTime = seekTarget;
           }
-          video.play().catch(() => {});
+          video.play().catch((err) => {
+            console.warn('Playback play request:', err);
+          });
         });
       } else {
         video.src = streamUrl;
         video.load();
+
+        // Apply unmuted 100% volume and playback speed before playing
+        video.muted = false;
+        video.volume = volume > 0 ? volume : 1;
+        video.playbackRate = playbackSpeed;
 
         const seekTarget = pendingSeekRef.current !== null 
           ? pendingSeekRef.current 
@@ -488,13 +521,10 @@ export default function VideoPlayerModal({
         if (seekTarget > 0) {
           video.currentTime = seekTarget;
         }
-        video.play().catch(() => {});
+        video.play().catch((err) => {
+          console.warn('Playback play request:', err);
+        });
       }
-
-      // Apply initial volume and playback speed
-      video.muted = isMuted;
-      video.volume = volume > 0 ? volume : 1;
-      video.playbackRate = playbackSpeed;
     };
 
     initEngine();
@@ -1011,18 +1041,28 @@ export default function VideoPlayerModal({
     });
   };
 
-  // MOBILE GESTURES: Double-tap seek & Long-press 2X
+  // MOBILE GESTURES: Double-tap seek, Long-press 2X, Left-swipe Brightness, Right-swipe Volume
   const handleTouchStart = (e) => {
     if (isLocked) return;
     const touch = e.touches[0];
     const now = Date.now();
     const last = doubleTapTimerRef.current.lastTap;
-    const lastX = doubleTapTimerRef.current.lastX;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const touchX = touch.clientX - rect.left;
+    const touchY = touch.clientY - rect.top;
+    const isLeft = touchX < rect.width * 0.5;
+
+    touchStartDataRef.current = {
+      startX: touchX,
+      startY: touchY,
+      startVol: volume,
+      startBright: brightness,
+      hasMoved: false,
+      isLeft
+    };
 
     // Double-tap detection (within 300ms)
     if (now - last < 300) {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const touchX = touch.clientX - rect.left;
       if (touchX < rect.width * 0.35) {
         stepSeek(-10);
       } else if (touchX > rect.width * 0.65) {
@@ -1037,7 +1077,7 @@ export default function VideoPlayerModal({
 
     // Long-press 2X speed detection (YouTube style)
     longPressTimerRef.current = setTimeout(() => {
-      if (videoRef.current && isPlaying) {
+      if (videoRef.current && isPlaying && !touchStartDataRef.current?.hasMoved) {
         previousSpeedRef.current = videoRef.current.playbackRate || 1;
         videoRef.current.playbackRate = 2.0;
         setIsLongPressing2x(true);
@@ -1045,7 +1085,48 @@ export default function VideoPlayerModal({
     }, 280);
   };
 
+  const handleTouchMove = (e) => {
+    if (isLocked || !touchStartDataRef.current) return;
+    const touch = e.touches[0];
+    const rect = e.currentTarget.getBoundingClientRect();
+    const touchY = touch.clientY - rect.top;
+    const deltaY = touchStartDataRef.current.startY - touchY; // Moving upward increases value
+
+    if (Math.abs(deltaY) > 8) {
+      touchStartDataRef.current.hasMoved = true;
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+      if (isLongPressing2x && videoRef.current) {
+        videoRef.current.playbackRate = previousSpeedRef.current || 1;
+        setIsLongPressing2x(false);
+      }
+
+      const changeFraction = deltaY / (rect.height * 0.65);
+
+      if (touchStartDataRef.current.isLeft) {
+        // LEFT HALF: Brightness (0.1 to 1.5)
+        const newBright = Math.max(0.1, Math.min(1.5, touchStartDataRef.current.startBright + changeFraction));
+        setBrightness(newBright);
+        showGestureFeedback('brightness', Math.round((newBright / 1.5) * 100));
+      } else {
+        // RIGHT HALF: Volume (0.0 to 1.0)
+        const newVol = Math.max(0, Math.min(1.0, touchStartDataRef.current.startVol + changeFraction));
+        if (videoRef.current) {
+          videoRef.current.volume = newVol;
+          videoRef.current.muted = newVol === 0;
+        }
+        setVolume(newVol);
+        setIsMuted(newVol === 0);
+        localStorage.setItem('mb_volume', newVol.toString());
+        showGestureFeedback('volume', Math.round(newVol * 100));
+      }
+    }
+  };
+
   const handleTouchEnd = () => {
+    touchStartDataRef.current = null;
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
@@ -1292,7 +1373,7 @@ export default function VideoPlayerModal({
 
         {/* MAIN VIDEO CANVAS */}
         <div 
-          className="relative w-full h-full flex items-center justify-center cursor-pointer bg-black"
+          className="relative w-full h-full flex items-center justify-center cursor-pointer bg-black overflow-hidden"
           onClick={() => {
             if (!isLocked) {
               setControlsVisible(prev => !prev);
@@ -1302,9 +1383,37 @@ export default function VideoPlayerModal({
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
           onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
           onTouchCancel={handleTouchEnd}
         >
+          {/* Native Hardware-Preserving Brightness Overlay */}
+          <div 
+            className="pointer-events-none absolute inset-0 bg-black transition-opacity duration-75 z-10" 
+            style={{ opacity: Math.max(0, Math.min(0.85, 1 - brightness)) }} 
+          />
+
+          {/* SWIPE GESTURE FEEDBACK HUD (VOLUME & BRIGHTNESS) */}
+          {gestureOverlay && (
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-40 bg-black/85 backdrop-blur-md px-6 py-4 rounded-3xl border border-white/10 shadow-2xl flex flex-col items-center gap-3 animate-in zoom-in-95 pointer-events-none">
+              <div className="flex items-center gap-2.5">
+                {gestureOverlay.type === 'volume' ? (
+                  gestureOverlay.value === 0 ? <VolumeX className="w-7 h-7 text-red-400" /> : <Volume2 className="w-7 h-7 text-accent" />
+                ) : (
+                  <Sun className="w-7 h-7 text-amber-400" />
+                )}
+                <span className="text-base font-black text-white">
+                  {gestureOverlay.type === 'volume' ? `Volume ${gestureOverlay.value}%` : `Brightness ${gestureOverlay.value}%`}
+                </span>
+              </div>
+              <div className="w-32 h-2.5 bg-gray-700/80 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full rounded-full transition-all duration-75 ${gestureOverlay.type === 'volume' ? 'bg-accent' : 'bg-amber-400'}`}
+                  style={{ width: `${Math.min(100, gestureOverlay.value)}%` }}
+                />
+              </div>
+            </div>
+          )}
           {/* Buffer Spinner */}
           {isLoading && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/85 z-10 gap-3">

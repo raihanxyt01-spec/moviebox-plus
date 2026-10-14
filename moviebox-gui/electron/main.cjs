@@ -14,10 +14,13 @@ app.commandLine.appendSwitch('enable-hardware-overlays');
 app.commandLine.appendSwitch('enable-accelerated-video-decode');
 app.commandLine.appendSwitch('enable-accelerated-mjpeg-decode');
 app.commandLine.appendSwitch('enable-gpu-memory-buffer-video-frames');
-app.commandLine.appendSwitch('enable-native-gpu-memory-buffers');
 app.commandLine.appendSwitch('disable-frame-rate-limit');
 app.commandLine.appendSwitch('use-angle', 'd3d11');
-app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport,VaapiVideoDecoder,CanvasOopRasterization,UseMultiPlaneFormatForHardwareVideo');
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+app.commandLine.appendSwitch('enable-experimental-web-platform-features');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport,VaapiVideoDecoder,CanvasOopRasterization,UseMultiPlaneFormatForHardwareVideo,PlatformAudioDecoder');
 
 // High performance persistent connection agents to avoid TCP/TLS handshake latency on media segments
 const httpAgent = new http.Agent({
