@@ -43,9 +43,14 @@ const EXPLICIT_GENRES = [
 export function isExplicitContent(item) {
   if (!item) return false;
 
-  const title = (item.title || item.name || '').toLowerCase();
-  const desc = (item.synopsis || item.description || item.intro || '').toLowerCase();
-  const rawGenre = (item.genre || item.raw?.genre || '').toLowerCase();
+  const title = (item.title || item.name || '').toString().toLowerCase();
+  const desc = (item.synopsis || item.description || item.intro || '').toString().toLowerCase();
+  const rawGenre = (
+    Array.isArray(item.genre) ? item.genre.join(' ') :
+    (Array.isArray(item.raw?.genre) ? item.raw.genre.join(' ') :
+    (item.genre || item.raw?.genre || ''))
+  ).toString().toLowerCase();
+
   const rawTags = (
     Array.isArray(item.tags) ? item.tags.join(' ') : 
     (Array.isArray(item.raw?.tags) ? item.raw.tags.join(' ') : 
@@ -55,7 +60,7 @@ export function isExplicitContent(item) {
   const genres = [
     ...(Array.isArray(item.genres) ? item.genres : []),
     ...(Array.isArray(item.raw?.genres) ? item.raw.genres : []),
-    ...rawGenre.split(/[,/|]+/)
+    ...rawGenre.split(/[,/| ]+/)
   ].map(g => (g || '').toString().trim().toLowerCase()).filter(Boolean);
 
   // 1. Explicit genre check (e.g. 'Adult', 'Hentai', 'Ecchi', 'Erotica')
@@ -89,9 +94,13 @@ export function classifyContent(item) {
 
   const isExplicit = isExplicitContent(item);
   const isSeries = item.type === 'Series' || item.subjectType === 2 || item.stype === 2;
-  const title = (item.title || item.name || '').toLowerCase();
-  const rawGenre = (item.genre || '').toLowerCase();
-  const genres = Array.isArray(item.genres) ? item.genres.map(g => g.toLowerCase()) : [];
+  const title = (item.title || item.name || '').toString().toLowerCase();
+  const rawGenre = (
+    Array.isArray(item.genre) ? item.genre.join(' ') :
+    (Array.isArray(item.raw?.genre) ? item.raw.genre.join(' ') :
+    (item.genre || item.raw?.genre || ''))
+  ).toString().toLowerCase();
+  const genres = Array.isArray(item.genres) ? item.genres.map(g => (g || '').toString().toLowerCase()) : [];
 
   let category = 'Other';
   if (isExplicit) {

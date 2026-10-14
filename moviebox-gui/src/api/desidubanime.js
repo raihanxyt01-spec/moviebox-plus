@@ -1,5 +1,6 @@
 // DesiDubAnime Provider Adapter
 // Scrapes & decodes anime catalog, episode lists, and multi-audio HLS streams from https://www.desidubanime.me/
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import CryptoJS from 'crypto-js';
 
 const DESIDUB_BASE = 'https://www.desidubanime.me';
@@ -36,6 +37,22 @@ class DesiDubAnimeApi {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       ...customHeaders
     };
+
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const res = await CapacitorHttp.get({ url, headers });
+        const data = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+        return {
+          ok: res.status >= 200 && res.status < 300,
+          status: res.status,
+          text: async () => data,
+          json: async () => (typeof res.data === 'object' ? res.data : JSON.parse(res.data))
+        };
+      } catch (e) {
+        console.warn('CapacitorHttp get failed on DesiDubAnime, falling back to fetch:', e);
+      }
+    }
+
     return await fetch(url, { headers });
   }
 
@@ -46,7 +63,8 @@ class DesiDubAnimeApi {
       const res = await this.fetchWithHeaders(url);
       if (!res.ok) return [];
       const items = await res.json();
-      return (items || []).map(item => this.formatAnimeItem(item));
+      if (!Array.isArray(items)) return [];
+      return items.map(item => this.formatAnimeItem(item));
     } catch (err) {
       console.error('DesiDubAnime getLatest failed:', err);
       return [];
@@ -57,31 +75,60 @@ class DesiDubAnimeApi {
     const featuredMedia = item._embedded?.['wp:featuredmedia']?.[0]?.source_url || '';
     const title = item.title?.rendered ? item.title.rendered.replace(/&#8211;/g, '-').replace(/&#8220;/g, '"').replace(/&#8221;/g, '"').replace(/&#8217;/g, "'").replace(/&amp;/g, '&') : (item.title || 'Anime');
     
-    // Extract Hindi / Multi tag from classes
+    // Extract human-readable taxonomy terms from _embedded['wp:term']
+    const terms = item._embedded?.['wp:term'] || [];
+    let genres = [];
+    let tags = [];
+    let premiered = '';
+    let animeType = 'Series';
+
+    for (const group of terms) {
+      if (Array.isArray(group) && group.length > 0) {
+        const tax = group[0].taxonomy;
+        if (tax === 'genre') {
+          genres = group.map(t => t.name);
+        } else if (tax === 'post_tag') {
+          tags = group.map(t => t.name);
+        } else if (tax === 'premiered') {
+          premiered = group[0].name;
+        } else if (tax === 'type') {
+          animeType = (group[0].name || '').toLowerCase() === 'movie' ? 'Movie' : 'Series';
+        }
+      }
+    }
+
+    // Extract Hindi / Multi tag from classes & tags
     const classes = item.class_list || [];
-    const isHindi = classes.some(c => c.includes('hindi'));
-    const isEnglish = classes.some(c => c.includes('english'));
-    const isJapanese = classes.some(c => c.includes('japanese'));
+    const allText = [...classes, ...tags].join(' ').toLowerCase();
+    const isHindi = allText.includes('hindi');
+    const isEnglish = allText.includes('english');
+    const isTamil = allText.includes('tamil');
+    const isTelugu = allText.includes('telugu');
     
     let audioTag = 'Multi';
-    if (isHindi && !isEnglish) audioTag = 'Hindi Dub';
+    if (isHindi && !isEnglish && !isTamil && !isTelugu) audioTag = 'Hindi Dub';
     else if (isHindi && isEnglish) audioTag = 'Hindi + Eng';
+    else if (isHindi && (isTamil || isTelugu)) audioTag = 'Hindi + Multi';
+
+    const year = premiered || (item.date || '').slice(0, 4) || '2025';
 
     return {
       id: `desidub_${item.id}`,
       wpId: item.id,
       title: title,
       slug: item.slug,
-      type: 'Series',
-      year: (item.date || '').slice(0, 4) || '2025',
+      type: animeType,
+      year: year,
+      genre: genres.join(', '),
+      genres: genres,
+      tags: tags,
       rating: '8.8',
       badge: audioTag,
       quality: '1080p',
       cover: featuredMedia,
       banner: featuredMedia,
       description: item.excerpt?.rendered ? item.excerpt.rendered.replace(/<[^>]+>/g, '').trim() : '',
-      provider: 'desidubanime',
-      raw: item
+      provider: 'desidubanime'
     };
   }
 

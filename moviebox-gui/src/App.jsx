@@ -691,8 +691,8 @@ export default function App() {
               </div>
             ) : (
               <>
-                {/* Recently Uploaded Shelf with "View More" option */}
-                {latestItems.length > 0 && (
+                {/* Recently Uploaded Shelf with "View More" option (MovieBox default feed) */}
+                {currentProvider === 'moviebox' && latestItems.length > 0 && (
                   <MediaGrid
                     title="🚀 Recently Uploaded Releases"
                     items={filterEligibleMedia(latestItems, false).slice(0, 12)}
@@ -706,8 +706,8 @@ export default function App() {
                   />
                 )}
 
-                {/* Latest Anime Shelf with "View More" option */}
-                {animeItems.length > 0 && (
+                {/* Latest Anime Shelf with "View More" option (MovieBox default feed) */}
+                {currentProvider === 'moviebox' && animeItems.length > 0 && (
                   <MediaGrid
                     title="🎌 Top Anime & Recent Episodes"
                     items={filterEligibleMedia(animeItems, false).slice(0, 12)}
