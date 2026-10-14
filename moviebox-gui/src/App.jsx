@@ -9,7 +9,7 @@ import ContinueWatchingShelf from './components/ContinueWatchingShelf';
 import SideDrawer from './components/SideDrawer';
 import VaultPinModal from './components/VaultPinModal';
 import { movieboxApi } from './api/moviebox';
-import { dramachiApi, TRANSLATIONS } from './api/providers';
+import { dramachiApi, fourkhdApi, TRANSLATIONS } from './api/providers';
 import { getWatchHistory, getRestrictedSettings, filterEligibleMedia, saveWatchHistoryItem } from './utils/contentFilter';
 import { getPreferredPlayer, setPreferredPlayer, PLAYER_ENGINES, launchExternalPlayback } from './utils/vlcLauncher';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -77,6 +77,9 @@ export default function App() {
 
   // Load homepage data on startup
   useEffect(() => {
+    setMovieItems([]);
+    setSeriesItems([]);
+    setAnimeItems([]);
     loadHomepage();
   }, [currentProvider]);
 
@@ -90,6 +93,17 @@ export default function App() {
         setFeaturedItems(dramas.slice(0, 8));
         setHomeSections([{ title: 'Popular Asian Dramas', items: dramas }]);
         setLatestItems(dramas);
+      } else if (currentProvider === 'fourkhdhub') {
+        // Load 4K HD Hub for you
+        const releases = await fourkhdApi.getHomepage(1);
+        const topReleases = releases.slice(0, 10);
+        setFeaturedItem(topReleases[0] || null);
+        setFeaturedItems(topReleases);
+        setHomeSections([
+          { title: 'Ultra HD 4K & IMAX Web Releases (4K HD Hub for you)', items: releases.slice(0, 16) },
+          { title: 'Popular Ultra HD 2160p & 1080p Streams', items: releases.slice(16) }
+        ]);
+        setLatestItems(releases);
       } else {
         // Standard MovieBox live feed with parallel fetching of latest & anime
         const [tabRes, latestRes, animeRes] = await Promise.allSettled([
@@ -133,14 +147,22 @@ export default function App() {
   useEffect(() => {
     if (activeTab === 'movies' && movieItems.length === 0) {
       setIsLoading(true);
-      movieboxApi.search('2025', 1, 20, 1)
-        .then(items => { setMovieItems(filterEligibleMedia(items || [], false)); setIsLoading(false); })
-        .catch(() => setIsLoading(false));
+      if (currentProvider === 'fourkhdhub') {
+        fourkhdApi.search('2025').then(items => { setMovieItems(items || []); setIsLoading(false); }).catch(() => setIsLoading(false));
+      } else {
+        movieboxApi.search('2025', 1, 20, 1)
+          .then(items => { setMovieItems(filterEligibleMedia(items || [], false)); setIsLoading(false); })
+          .catch(() => setIsLoading(false));
+      }
     } else if (activeTab === 'series' && seriesItems.length === 0) {
       setIsLoading(true);
-      movieboxApi.search('Series', 1, 20, 2)
-        .then(items => { setSeriesItems(filterEligibleMedia(items || [], false)); setIsLoading(false); })
-        .catch(() => setIsLoading(false));
+      if (currentProvider === 'fourkhdhub') {
+        fourkhdApi.search('Series').then(items => { setSeriesItems(items || []); setIsLoading(false); }).catch(() => setIsLoading(false));
+      } else {
+        movieboxApi.search('Series', 1, 20, 2)
+          .then(items => { setSeriesItems(filterEligibleMedia(items || [], false)); setIsLoading(false); })
+          .catch(() => setIsLoading(false));
+      }
     } else if (activeTab === 'anime' && animeItems.length === 0) {
       setIsLoading(true);
       movieboxApi.getAnime(1)
@@ -152,7 +174,7 @@ export default function App() {
         .then(items => { setRestrictedItems(items); setIsLoading(false); })
         .catch(() => setIsLoading(false));
     }
-  }, [activeTab]);
+  }, [activeTab, currentProvider]);
 
   const handleFullSearch = async (query, subjectType = 0, genre = 'All') => {
     setSearchQuery(query || '');
@@ -163,6 +185,9 @@ export default function App() {
       if (currentProvider === 'dramachi') {
         const results = await dramachiApi.search(query || 'Drama');
         setSearchResults(filterEligibleMedia(results, restrictedEnabled));
+      } else if (currentProvider === 'fourkhdhub') {
+        const results = await fourkhdApi.search(query || '2025');
+        setSearchResults(results || []);
       } else {
         let results = [];
         const isGenreQuery = genre && genre !== 'All' && genre !== 'All Genres';
@@ -215,17 +240,35 @@ export default function App() {
     if (!source && item?.filePath) {
       // Local downloaded video file
       source = { url: item.filePath };
-    } else if (!source && subjectToUse) {
+    } else if (!source && (subjectToUse || item?.path || item?.title)) {
       const playerName = chosenPlayer === 'potplayer' ? 'PotPlayer' :
                          chosenPlayer === 'mxplayer' ? 'MX Player' :
                          chosenPlayer === 'system' ? 'System Player' : 'VLC';
       setVlcLoadingToast(`Resolving highest quality stream for ${item?.title || 'video'} in ${playerName}...`);
       try {
-        const streams = await movieboxApi.getPlayStreams(subjectToUse, seNum, epNum);
+        let streams = { sources: [], subtitles: [] };
+        if (item?.provider === 'fourkhdhub' || item?.path) {
+          streams = await fourkhdApi.getPlayStreams(item.path || item.id, seNum, epNum);
+        } else if (subjectToUse) {
+          streams = await movieboxApi.getPlayStreams(subjectToUse, seNum, epNum);
+          // Automatic fallback to 4K HD Hub if MovieBox returns 0 streams
+          if ((!streams.sources || streams.sources.length === 0) && item?.title) {
+            const fallbackResults = await fourkhdApi.search(item.title);
+            if (fallbackResults && fallbackResults.length > 0) {
+              const bestMatch = fallbackResults[0];
+              streams = await fourkhdApi.getPlayStreams(bestMatch.path || bestMatch.id, seNum, epNum);
+            }
+          }
+        }
+
         if (streams.sources && streams.sources.length > 0) {
-          // Find the best quality stream (prefer direct 4K / 1080p)
-          const directBest = streams.sources.find(s => s.direct && (s.resolution >= 1080 || s.badge?.includes('1080') || s.badge?.includes('4K')));
-          source = directBest || streams.sources[0];
+          source = streams.sources[0];
+          if (source.mirrors && source.mirrors.length > 0 && !source.direct) {
+            const resolved = await fourkhdApi.resolveMirror(source.primaryMirror || source.url);
+            if (resolved && resolved.url) {
+              source = { ...source, url: resolved.url, direct: true };
+            }
+          }
         }
         if (!subtitleUrl && streams.subtitles && streams.subtitles.length > 0) {
           const match = streams.subtitles.find(s => s.label?.toLowerCase().includes('english') || s.language === 'en') || streams.subtitles[0];

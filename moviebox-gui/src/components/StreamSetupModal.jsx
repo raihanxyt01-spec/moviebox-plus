@@ -4,6 +4,7 @@ import {
   Sparkles, Gauge, ArrowRight, ShieldCheck, Zap
 } from 'lucide-react';
 import { movieboxApi } from '../api/moviebox';
+import { fourkhdApi } from '../api/fourkhd';
 
 export default function StreamSetupModal({
   item,
@@ -40,54 +41,85 @@ export default function StreamSetupModal({
     let isMounted = true;
     setIsLoading(true);
 
-    const subjectToFetch = activeDub?.subjectId || item?.id;
-    if (!subjectToFetch) return;
+    const is4kHd = item?.provider === 'fourkhdhub' || item?.id?.startsWith('fourkhd_') || item?.path;
+    const fetchPromise = is4kHd
+      ? fourkhdApi.getPlayStreams(item.path || item.id, seNum, epNum)
+      : movieboxApi.getPlayStreams(activeDub?.subjectId || item?.id, seNum, epNum);
 
-    movieboxApi.getPlayStreams(subjectToFetch, seNum, epNum)
-      .then((streamData) => {
-        if (!isMounted) return;
-        const srcList = streamData.sources || [];
-        const subList = streamData.subtitles || [];
+    fetchPromise.then(async (streamData) => {
+      if (!isMounted) return;
+      let srcList = streamData.sources || [];
+      const subList = streamData.subtitles || [];
 
-        setSources(srcList);
-        setSubtitles(subList);
+      // Auto-fallback to 4K HD Hub if MovieBox returns 0 streams
+      if (srcList.length === 0 && item?.title && !is4kHd) {
+        try {
+          const fallbackResults = await fourkhdApi.search(item.title);
+          if (fallbackResults && fallbackResults.length > 0) {
+            const fallbackStreams = await fourkhdApi.getPlayStreams(fallbackResults[0].path || fallbackResults[0].id, seNum, epNum);
+            srcList = fallbackStreams.sources || [];
+          }
+        } catch (e) {}
+      }
 
-        // Pre-select best stream (highest resolution)
-        if (srcList.length > 0) {
-          // Prefer high-res direct stream or first available
-          const best = srcList.find(s => s.direct && (s.resolution >= 1080 || s.badge?.includes('1080') || s.badge?.includes('4K'))) || srcList[0];
-          setSelectedSource(best);
-        }
+      setSources(srcList);
+      setSubtitles(subList);
 
-        // Pre-select subtitle matching language or English
-        if (subList.length > 0) {
-          const engSub = subList.find(s => s.language?.toLowerCase() === 'en' || s.label?.toLowerCase().includes('english')) || subList[0];
-          setSelectedSubtitle(engSub?.url || 'off');
-        } else {
-          setSelectedSubtitle('off');
-        }
+      // Pre-select best stream (highest resolution)
+      if (srcList.length > 0) {
+        const best = srcList.find(s => s.direct && (s.resolution >= 1080 || s.badge?.includes('1080') || s.badge?.includes('4K'))) || srcList[0];
+        setSelectedSource(best);
+      }
 
-        setIsLoading(false);
-      })
-      .catch((err) => {
-        console.error('Failed to resolve streams for setup modal:', err);
-        if (isMounted) setIsLoading(false);
-      });
+      // Pre-select subtitle matching language or English
+      if (subList.length > 0) {
+        const engSub = subList.find(s => s.language?.toLowerCase() === 'en' || s.label?.toLowerCase().includes('english')) || subList[0];
+        setSelectedSubtitle(engSub?.url || 'off');
+      } else {
+        setSelectedSubtitle('off');
+      }
+
+      setIsLoading(false);
+    }).catch(async (err) => {
+      console.error('Failed to resolve streams for setup modal:', err);
+      if (!isMounted) return;
+      if (item?.title) {
+        try {
+          const fallbackResults = await fourkhdApi.search(item.title);
+          if (fallbackResults && fallbackResults.length > 0) {
+            const fallbackStreams = await fourkhdApi.getPlayStreams(fallbackResults[0].path || fallbackResults[0].id, seNum, epNum);
+            setSources(fallbackStreams.sources || []);
+            if (fallbackStreams.sources?.length > 0) {
+              setSelectedSource(fallbackStreams.sources[0]);
+            }
+          }
+        } catch (e) {}
+      }
+      setIsLoading(false);
+    });
 
     return () => { isMounted = false; };
-  }, [item?.id, activeDub?.subjectId, seNum, epNum]);
+  }, [item?.id, item?.path, item?.provider, activeDub?.subjectId, seNum, epNum]);
 
   const handleDubChange = (dub) => {
     setActiveDub(dub);
     // Streams will re-fetch automatically via useEffect
   };
 
-  const handleLaunchPlayback = () => {
+  const handleLaunchPlayback = async () => {
     if (rememberQuickPlay) {
       localStorage.setItem('mb_auto_quickplay', 'true');
     }
+    let finalSource = selectedSource;
+    if (finalSource && finalSource.mirrors && finalSource.mirrors.length > 0 && !finalSource.direct) {
+      const resolved = await fourkhdApi.resolveMirror(finalSource.primaryMirror || finalSource.url);
+      if (resolved && resolved.url) {
+        finalSource = { ...finalSource, url: resolved.url, direct: true };
+      }
+    }
+
     const launchData = {
-      source: selectedSource,
+      source: finalSource,
       subtitleUrl: selectedSubtitle !== 'off' ? selectedSubtitle : null,
       dub: activeDub,
       player: selectedPlayer

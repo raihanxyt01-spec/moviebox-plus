@@ -18,4 +18,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('download-update', handler);
     return () => ipcRenderer.removeListener('download-update', handler);
   },
+  fourkhdSearch: (query) => ipcRenderer.invoke('fourkhd-search', query),
+  fourkhdDetails: (path) => ipcRenderer.invoke('fourkhd-details', path),
+  fourkhdStreams: (args) => ipcRenderer.invoke('fourkhd-streams', args),
+  resolveMirror: (mirrorUrl) => ipcRenderer.invoke('resolve-mirror', mirrorUrl),
 });

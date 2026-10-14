@@ -5,6 +5,7 @@ import {
   Settings2, Sparkles, RotateCcw
 } from 'lucide-react';
 import { movieboxApi } from '../api/moviebox';
+import { fourkhdApi } from '../api/fourkhd';
 import { getWatchHistory } from '../utils/contentFilter';
 import StreamSetupModal from './StreamSetupModal';
 
@@ -40,9 +41,14 @@ export default function DetailsModal({
       setHistoryRecord(hist);
     }
 
-    movieboxApi.getDetails(item.id).then(res => {
+    const is4kHd = item.provider === 'fourkhdhub' || item.id?.startsWith('fourkhd_') || item.path;
+    const fetchPromise = is4kHd 
+      ? fourkhdApi.getDetails(item.path || item.id) 
+      : movieboxApi.getDetails(item.id);
+
+    fetchPromise.then(res => {
       if (isMounted) {
-        setDetails(res);
+        setDetails(res || item);
         setIsLoading(false);
 
         const seasonsList = res.seasons || [];
@@ -91,15 +97,19 @@ export default function DetailsModal({
     setIsFetchingDownload(true);
     setShowDownloadMenu(true);
     try {
-      const subjectToUse = activeDub?.subjectId || currentDetails.id;
-      const streams = await movieboxApi.getPlayStreams(
-        subjectToUse, 
-        isSeries ? selectedSeason : 0, 
-        isSeries ? selectedEpisode : 0
-      );
-      // Prefer direct MP4 / playable streams for offline download
-      const directOnly = (streams.sources || []).filter(s => s.direct || s.format === 'MP4' || !s.isDash);
-      setDownloadSources(directOnly.length > 0 ? directOnly : (streams.sources || []));
+      const is4kHd = item.provider === 'fourkhdhub' || item.id?.startsWith('fourkhd_') || item.path;
+      let streams;
+      if (is4kHd) {
+        streams = await fourkhdApi.getPlayStreams(item.path || item.id, isSeries ? selectedSeason : 0, isSeries ? selectedEpisode : 0);
+      } else {
+        const subjectToUse = activeDub?.subjectId || currentDetails.id;
+        streams = await movieboxApi.getPlayStreams(
+          subjectToUse, 
+          isSeries ? selectedSeason : 0, 
+          isSeries ? selectedEpisode : 0
+        );
+      }
+      setDownloadSources(streams?.sources || []);
     } catch (e) {
       console.error('Failed to load download streams:', e);
     } finally {
@@ -107,9 +117,18 @@ export default function DetailsModal({
     }
   };
 
-  const executeDownload = (sourceItem) => {
-    const streamUrl = typeof sourceItem === 'string' ? sourceItem : sourceItem?.url;
+  const executeDownload = async (sourceItem) => {
+    let streamUrl = typeof sourceItem === 'string' ? sourceItem : sourceItem?.url;
     const cookie = typeof sourceItem === 'object' ? sourceItem?.cookie : '';
+
+    if (sourceItem.mirrors && sourceItem.mirrors.length > 0 && !sourceItem.direct) {
+      setIsFetchingDownload(true);
+      const resolved = await fourkhdApi.resolveMirror(sourceItem.primaryMirror || sourceItem.url);
+      setIsFetchingDownload(false);
+      if (resolved && resolved.url) {
+        streamUrl = resolved.url;
+      }
+    }
     if (!streamUrl) return;
 
     const rawTitle = currentDetails.title || 'MovieBox_Video';

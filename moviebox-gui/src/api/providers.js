@@ -1,9 +1,10 @@
 // Multi-provider registry and language translations
 import { movieboxApi } from './moviebox';
+import { fourkhdApi } from './fourkhd';
 
 export const PROVIDERS = [
   { id: 'moviebox', name: 'MovieBox', desc: 'Fast High-Definition Stream & Series (Default)', icon: 'Film' },
-  { id: 'fourkhdhub', name: '4K HD Hub', desc: 'Ultra HD 4K & 1080p Web Streams', icon: 'Sparkles' },
+  { id: 'fourkhdhub', name: '4K HD Hub for you', desc: 'Ultra HD 4K, BCORE & IMAX Web Streams', icon: 'Sparkles' },
   { id: 'dramachi', name: 'Dramachi', desc: 'Asian Dramas (Kdrama, Cdrama, Jdrama)', icon: 'Tv' },
   { id: 'livetv', name: 'Live TV (IPTV)', desc: 'Live Channels & Broadcast Streams', icon: 'Radio' },
 ];
@@ -132,3 +133,4 @@ class DramachiApi {
 }
 
 export const dramachiApi = new DramachiApi();
+export { fourkhdApi };

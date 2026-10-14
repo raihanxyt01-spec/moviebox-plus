@@ -9,6 +9,7 @@ import {
 import Hls from 'hls.js';
 import dashjs from 'dashjs';
 import { movieboxApi } from '../api/moviebox';
+import { fourkhdApi } from '../api/fourkhd';
 import { saveWatchHistoryItem } from '../utils/contentFilter';
 import { launchVlcPlayback } from '../utils/vlcLauncher';
 
@@ -177,33 +178,82 @@ export default function VideoPlayerModal({
       return;
     }
 
-    const targetSubId = activeSubjectId || item.id;
-    movieboxApi.getPlayStreams(targetSubId, currentSeNumber, currentEpNumber).then(res => {
+    const is4kHd = item?.provider === 'fourkhdhub' || item?.id?.startsWith('fourkhd_') || item?.path;
+    const fetchStreamPromise = is4kHd
+      ? fourkhdApi.getPlayStreams(item.path || item.id, currentSeNumber, currentEpNumber)
+      : movieboxApi.getPlayStreams(activeSubjectId || item.id, currentSeNumber, currentEpNumber);
+
+    fetchStreamPromise.then(async (res) => {
       if (!isMounted) return;
 
-      if (res.sources && res.sources.length > 0) {
-        setSources(res.sources);
+      let sourcesList = res.sources || [];
+      let subList = res.subtitles || [];
+
+      // Auto-fallback: if MovieBox has 0 sources, automatically search and load from 4K HD Hub
+      if (sourcesList.length === 0 && item?.title && !is4kHd) {
+        showToast('Checking alternative 4K HD Hub streams...');
+        try {
+          const fallbackResults = await fourkhdApi.search(item.title);
+          if (fallbackResults && fallbackResults.length > 0) {
+            const best = fallbackResults[0];
+            const fallbackRes = await fourkhdApi.getPlayStreams(best.path || best.id, currentSeNumber, currentEpNumber);
+            if (fallbackRes.sources && fallbackRes.sources.length > 0) {
+              sourcesList = fallbackRes.sources;
+              subList = fallbackRes.subtitles || [];
+              showToast(`Auto-switched to 4K HD Hub (${sourcesList.length} streams found)`);
+            }
+          }
+        } catch (fbErr) {
+          console.warn('Fallback search error:', fbErr);
+        }
+      }
+
+      if (sourcesList.length > 0) {
+        setSources(sourcesList);
         // Automatically select the HIGHEST available quality by default
-        setSelectedSource(res.sources[0]);
-        setSubtitles(res.subtitles || []);
+        setSelectedSource(sourcesList[0]);
+        setSubtitles(subList);
         
         // Auto-select English subtitle if available, otherwise first available subtitle
         if (res.defaultSubtitle && res.defaultSubtitle !== 'off') {
           setSelectedSubtitle(res.defaultSubtitle);
         }
 
-        const topBadge = res.sources[0]?.badge || '1080p';
-        showToast(`Playing ${topBadge} (Highest Quality Available)`);
+        const topBadge = sourcesList[0]?.badge || '1080p';
+        const sizeInfo = sourcesList[0]?.size ? ` (${sourcesList[0].size})` : '';
+        showToast(`Playing ${topBadge}${sizeInfo} - Highest Quality`);
       } else {
         setErrorMsg('No available stream sources found for this title.');
       }
       setIsLoading(false);
-    }).catch(err => {
+    }).catch(async (err) => {
       console.error('Failed to load video streams:', err);
-      if (isMounted) {
-        setErrorMsg('Stream could not be loaded. Please check your connection or choose another title.');
-        setIsLoading(false);
+      if (!isMounted) return;
+
+      // Try fallback to 4K HD Hub on error
+      if (item?.title) {
+        showToast('Checking alternative 4K HD Hub streams...');
+        try {
+          const fallbackResults = await fourkhdApi.search(item.title);
+          if (fallbackResults && fallbackResults.length > 0) {
+            const best = fallbackResults[0];
+            const fallbackRes = await fourkhdApi.getPlayStreams(best.path || best.id, currentSeNumber, currentEpNumber);
+            if (fallbackRes.sources && fallbackRes.sources.length > 0) {
+              setSources(fallbackRes.sources);
+              setSelectedSource(fallbackRes.sources[0]);
+              setSubtitles(fallbackRes.subtitles || []);
+              setIsLoading(false);
+              showToast(`Auto-switched to 4K HD Hub (${fallbackRes.sources.length} streams found)`);
+              return;
+            }
+          }
+        } catch (fbErr) {
+          console.warn('Fallback search error:', fbErr);
+        }
       }
+
+      setErrorMsg('Stream could not be loaded. Please check your connection or choose another title.');
+      setIsLoading(false);
     });
 
     return () => { isMounted = false; };
@@ -230,6 +280,21 @@ export default function VideoPlayerModal({
     }
 
     const initEngine = async () => {
+      // Resolve mirror link if it's an unresolved 4K HD Hub stream
+      if (selectedSource.mirrors && selectedSource.mirrors.length > 0 && !selectedSource.direct) {
+        showToast(`Connecting to ${selectedSource.badge || '4K'} stream...`);
+        try {
+          const resolved = await fourkhdApi.resolveMirror(selectedSource.primaryMirror || selectedSource.url);
+          if (resolved && resolved.url) {
+            streamUrl = resolved.url;
+          }
+        } catch (e) {
+          console.warn('Mirror resolution failed:', e);
+        }
+      }
+
+      if (isCancelled) return;
+
       // In Electron environment, route DASH, authenticated, and all direct CDN streams through the local proxy
       if (window.electronAPI?.getProxyUrl && streamUrl && (streamUrl.startsWith('http://') || streamUrl.startsWith('https://'))) {
         try {
