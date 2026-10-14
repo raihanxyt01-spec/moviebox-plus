@@ -9,7 +9,7 @@ import ContinueWatchingShelf from './components/ContinueWatchingShelf';
 import SideDrawer from './components/SideDrawer';
 import VaultPinModal from './components/VaultPinModal';
 import { movieboxApi } from './api/moviebox';
-import { dramachiApi, fourkhdApi, TRANSLATIONS } from './api/providers';
+import { dramachiApi, fourkhdApi, desidubanimeApi, TRANSLATIONS } from './api/providers';
 import { getWatchHistory, getRestrictedSettings, filterEligibleMedia, saveWatchHistoryItem } from './utils/contentFilter';
 import { getPreferredPlayer, setPreferredPlayer, PLAYER_ENGINES, launchExternalPlayback } from './utils/vlcLauncher';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -106,6 +106,18 @@ export default function App() {
           { title: 'Popular Ultra HD 2160p & 1080p Streams', items: releases.slice(16) }
         ]);
         setLatestItems(releases);
+      } else if (currentProvider === 'desidubanime') {
+        // Load DesiDubAnime (Hindi & Multi-Audio Dubbed Anime)
+        const animeList = await desidubanimeApi.getLatest(1, 24);
+        const topAnime = animeList.slice(0, 8);
+        setFeaturedItem(topAnime[0] || null);
+        setFeaturedItems(topAnime);
+        setHomeSections([
+          { title: 'Latest Hindi & Multi-Audio Dubbed Anime (DesiDubAnime)', items: animeList.slice(0, 12) },
+          { title: 'Popular Dubbed Series & Episodes', items: animeList.slice(12) }
+        ]);
+        setLatestItems(animeList);
+        setAnimeItems(animeList);
       } else {
         // Standard MovieBox live feed with parallel fetching of latest & anime
         const [tabRes, latestRes, animeRes] = await Promise.allSettled([
@@ -167,9 +179,15 @@ export default function App() {
       }
     } else if (activeTab === 'anime' && animeItems.length === 0) {
       setIsLoading(true);
-      movieboxApi.getAnime(1)
-        .then(items => { setAnimeItems(filterEligibleMedia(items || [], false)); setIsLoading(false); })
-        .catch(() => setIsLoading(false));
+      if (currentProvider === 'desidubanime') {
+        desidubanimeApi.getLatest(1, 24)
+          .then(items => { setAnimeItems(items || []); setIsLoading(false); })
+          .catch(() => setIsLoading(false));
+      } else {
+        movieboxApi.getAnime(1)
+          .then(items => { setAnimeItems(filterEligibleMedia(items || [], false)); setIsLoading(false); })
+          .catch(() => setIsLoading(false));
+      }
     } else if (activeTab === 'restricted') {
       setIsLoading(true);
       movieboxApi.getRestrictedContent(1)
@@ -189,6 +207,9 @@ export default function App() {
         setSearchResults(filterEligibleMedia(results, restrictedEnabled));
       } else if (currentProvider === 'fourkhdhub') {
         const results = await fourkhdApi.search(query || '2025');
+        setSearchResults(results || []);
+      } else if (currentProvider === 'desidubanime') {
+        const results = await desidubanimeApi.search(query || 'Anime');
         setSearchResults(results || []);
       } else {
         let results = [];
@@ -250,8 +271,26 @@ export default function App() {
       try {
         let streams = { sources: [], subtitles: [] };
         const isExplicit4kHd = item?.provider === 'fourkhdhub' || item?.id?.startsWith('fourkhd_') || item?.path;
+        const isDesiAnime = item?.provider === 'desidubanime' || item?.id?.startsWith('desidub_');
 
-        if (isExplicit4kHd) {
+        if (isDesiAnime) {
+          try {
+            let epUrl = item?.url || item?.episodeUrl;
+            if (!epUrl) {
+              const eps = await desidubanimeApi.getEpisodes(item);
+              const foundEp = eps.find(e => e.episodeNumber === epNum) || eps[0];
+              epUrl = foundEp?.url;
+            }
+            if (epUrl) {
+              const desiStreams = await desidubanimeApi.getPlayStreams(epUrl, epNum);
+              if (desiStreams && desiStreams.sources && desiStreams.sources.length > 0) {
+                streams = desiStreams;
+              }
+            }
+          } catch (desiErr) {
+            console.warn('DesiDubAnime stream fetch failed:', desiErr);
+          }
+        } else if (isExplicit4kHd) {
           streams = await fourkhdApi.getPlayStreams(item.path || item.id, seNum, epNum);
         } else {
           // 1. First check MovieBox stream server
@@ -266,29 +305,52 @@ export default function App() {
             }
           }
 
-          // 2. If MovieBox stream server has no streams, switch automatically to 4K HD Hub for you
+          // 2. If MovieBox stream server has no streams, check anime provider or switch automatically to 4K HD Hub for you
           if ((!streams.sources || streams.sources.length === 0) && (item?.title || item?.path || item?.id)) {
-            try {
-              let targetPath = item.path || (item.id?.startsWith('fourkhd_') ? item.id : null);
-              if (!targetPath && item.title) {
-                const cleanTitle = item.title.replace(/\(\d{4}\)/g, '').replace(/\[.*?\]/g, '').trim();
-                let searchRes = await fourkhdApi.search(cleanTitle);
-                if (!searchRes || searchRes.length === 0) {
-                  searchRes = await fourkhdApi.search(item.title);
-                }
-                if (searchRes && searchRes.length > 0) {
-                  targetPath = searchRes[0].path || searchRes[0].id;
-                }
-              }
+            const cleanTitle = (item.title || '').replace(/\(\d{4}\)/g, '').replace(/\[.*?\]/g, '').trim();
 
-              if (targetPath) {
-                const fallbackStreams = await fourkhdApi.getPlayStreams(targetPath, seNum, epNum);
-                if (fallbackStreams && fallbackStreams.sources && fallbackStreams.sources.length > 0) {
-                  streams = fallbackStreams;
+            // Try DesiDubAnime if item is anime
+            if (item.type === 'Anime' || (item.genre || '').toLowerCase().includes('anime')) {
+              try {
+                const animeResults = await desidubanimeApi.search(cleanTitle);
+                if (animeResults && animeResults.length > 0) {
+                  const eps = await desidubanimeApi.getEpisodes(animeResults[0]);
+                  const foundEp = eps.find(e => e.episodeNumber === epNum) || eps[0];
+                  if (foundEp?.url) {
+                    const desiStreams = await desidubanimeApi.getPlayStreams(foundEp.url, epNum);
+                    if (desiStreams && desiStreams.sources && desiStreams.sources.length > 0) {
+                      streams = desiStreams;
+                    }
+                  }
                 }
+              } catch (desiErr) {
+                console.warn('DesiDubAnime fallback check failed:', desiErr);
               }
-            } catch (e) {
-              console.error('Failed to resolve 4K HD Hub fallback streams:', e);
+            }
+
+            // Fallback to 4K HD Hub for you
+            if (!streams.sources || streams.sources.length === 0) {
+              try {
+                let targetPath = item.path || (item.id?.startsWith('fourkhd_') ? item.id : null);
+                if (!targetPath && item.title) {
+                  let searchRes = await fourkhdApi.search(cleanTitle);
+                  if (!searchRes || searchRes.length === 0) {
+                    searchRes = await fourkhdApi.search(item.title);
+                  }
+                  if (searchRes && searchRes.length > 0) {
+                    targetPath = searchRes[0].path || searchRes[0].id;
+                  }
+                }
+
+                if (targetPath) {
+                  const fallbackStreams = await fourkhdApi.getPlayStreams(targetPath, seNum, epNum);
+                  if (fallbackStreams && fallbackStreams.sources && fallbackStreams.sources.length > 0) {
+                    streams = fallbackStreams;
+                  }
+                }
+              } catch (e) {
+                console.error('Failed to resolve 4K HD Hub fallback streams:', e);
+              }
             }
           }
         }

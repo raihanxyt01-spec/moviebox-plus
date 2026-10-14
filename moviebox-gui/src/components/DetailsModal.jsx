@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { movieboxApi } from '../api/moviebox';
 import { fourkhdApi } from '../api/fourkhd';
+import { desidubanimeApi } from '../api/desidubanime';
 import { getWatchHistory } from '../utils/contentFilter';
 import StreamSetupModal from './StreamSetupModal';
 
@@ -42,9 +43,16 @@ export default function DetailsModal({
     }
 
     const is4kHd = item.provider === 'fourkhdhub' || item.id?.startsWith('fourkhd_') || item.path;
-    const fetchPromise = is4kHd 
-      ? fourkhdApi.getDetails(item.path || item.id) 
-      : movieboxApi.getDetails(item.id);
+    const isDesiAnime = item.provider === 'desidubanime' || item.id?.startsWith('desidub_');
+    const fetchPromise = isDesiAnime
+      ? desidubanimeApi.getEpisodes(item).then(eps => ({
+          ...item,
+          type: 'Series',
+          seasons: [{ season: 1, number: 1, episodeCount: eps.length, episodes: eps }]
+        }))
+      : is4kHd 
+        ? fourkhdApi.getDetails(item.path || item.id) 
+        : movieboxApi.getDetails(item.id);
 
     fetchPromise.then(res => {
       if (isMounted) {
@@ -98,8 +106,13 @@ export default function DetailsModal({
     setShowDownloadMenu(true);
     try {
       const is4kHd = item.provider === 'fourkhdhub' || item.id?.startsWith('fourkhd_') || item.path;
+      const isDesiAnime = item.provider === 'desidubanime' || item.id?.startsWith('desidub_');
       let streams;
-      if (is4kHd) {
+      if (isDesiAnime) {
+        const foundEp = currentSeasonData?.episodes?.find(e => e.episodeNumber === selectedEpisode) || currentSeasonData?.episodes?.[0];
+        const targetUrl = foundEp?.url || item.url;
+        streams = await desidubanimeApi.getPlayStreams(targetUrl, selectedEpisode);
+      } else if (is4kHd) {
         streams = await fourkhdApi.getPlayStreams(item.path || item.id, isSeries ? selectedSeason : 0, isSeries ? selectedEpisode : 0);
       } else {
         const subjectToUse = activeDub?.subjectId || currentDetails.id;

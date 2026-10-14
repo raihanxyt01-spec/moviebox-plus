@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { movieboxApi } from '../api/moviebox';
 import { fourkhdApi } from '../api/fourkhd';
+import { desidubanimeApi } from '../api/desidubanime';
 
 export default function StreamSetupModal({
   item,
@@ -43,14 +44,37 @@ export default function StreamSetupModal({
     setIsLoading(true);
 
     const isExplicit4kHd = item?.provider === 'fourkhdhub' || item?.id?.startsWith('fourkhd_') || item?.path;
+    const isDesiDub = item?.provider === 'desidubanime' || item?.id?.startsWith('desidub_');
 
     async function loadStreams() {
       let srcList = [];
       let subList = [];
-      let provName = isExplicit4kHd ? '4K HD Hub for you' : 'MovieBox Stream Server';
+      let provName = isDesiDub ? 'DesiDubAnime (Multi-Audio)' : isExplicit4kHd ? '4K HD Hub for you' : 'MovieBox Stream Server';
 
-      // 1. Check MovieBox first if item is not explicitly 4K HD Hub
-      if (!isExplicit4kHd && (activeDub?.subjectId || item?.id)) {
+      // 0. Check DesiDubAnime if item is from DesiDubAnime
+      if (isDesiDub) {
+        try {
+          let epUrl = item?.url || item?.episodeUrl;
+          if (!epUrl) {
+            const eps = await desidubanimeApi.getEpisodes(item);
+            const foundEp = eps.find(e => e.episodeNumber === epNum) || eps[0];
+            epUrl = foundEp?.url;
+          }
+          if (epUrl) {
+            const desiData = await desidubanimeApi.getPlayStreams(epUrl, epNum);
+            if (desiData && desiData.sources && desiData.sources.length > 0) {
+              srcList = desiData.sources;
+              subList = desiData.subtitles || [];
+              provName = 'DesiDubAnime (Multi-Audio)';
+            }
+          }
+        } catch (desiErr) {
+          console.warn('DesiDubAnime stream fetch failed:', desiErr);
+        }
+      }
+
+      // 1. Check MovieBox first if item is not explicitly 4K HD Hub or DesiDubAnime
+      if (!isDesiDub && !isExplicit4kHd && (activeDub?.subjectId || item?.id)) {
         try {
           const mbData = await movieboxApi.getPlayStreams(activeDub?.subjectId || item?.id, seNum, epNum);
           if (mbData && mbData.sources && mbData.sources.length > 0) {
